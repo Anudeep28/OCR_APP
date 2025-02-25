@@ -49,3 +49,19 @@ class LoanDocument(models.Model):
     
     def __str__(self):
         return f"Loan Document - {self.borrower_name}"
+
+class PropertyDocument(models.Model):
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    
+    # Property Information
+    property_owner = models.CharField(max_length=200)
+    property_area = models.CharField(max_length=100)  # e.g., "1200 sq ft"
+    property_location = models.TextField()  # Full address
+    property_coordinates = models.CharField(max_length=100, blank=True)  # e.g., "12.9716° N, 77.5946° E"
+    property_value = models.DecimalField(max_digits=15, decimal_places=2)
+    loan_limit = models.DecimalField(max_digits=15, decimal_places=2)
+    risk_summary = models.TextField()
+    
+    def __str__(self):
+        return f"Property Document - {self.property_owner}"

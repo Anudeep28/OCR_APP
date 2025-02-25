@@ -25,6 +25,85 @@ def image_to_base64(image):
     print(f"Base64 string length: {len(img_str)}")
     return img_str
 
+def extract_property_data_from_image(image, model):
+    """Extract property data from a single image using Gemini vision model"""
+    try:
+        print("\n=== Starting Property Data Extraction ===")
+        print(f"Image type: {type(image)}")
+        if isinstance(image, str):
+            print("Image is already a base64 string")
+            image_data = image
+        else:
+            print("Converting image to base64")
+            image_data = image_to_base64(image)
+
+        prompt = """Please extract the following information from this property document image. Return the data in valid JSON format with these fields:
+        {
+            "property_owner": "",
+            "property_area": "",
+            "property_location": "",
+            "property_coordinates": "",
+            "property_value": "",
+            "loan_limit": "",
+            "risk_summary": ""
+        }
+        
+        Important:
+        1. Return ONLY the JSON object, no additional text
+        2. Remove any currency symbols and special characters from numbers
+        3. If a field is not found in the image, leave it empty
+        4. For property_area, include the unit (e.g., "1200 sq ft")
+        5. For property_coordinates, use the format "latitude° N/S, longitude° E/W"
+        6. For risk_summary, provide a brief assessment of the property's risk factors"""
+
+        print("\n=== Sending Request to Gemini ===")
+        print(f"Prompt length: {len(prompt)}")
+        print("Generating content with Gemini...")
+        
+        # Create image parts for the model
+        image_part = {'mime_type': 'image/jpeg', 'data': image_data}
+        response = model.generate_content([prompt, image_part])
+        
+        print("\n=== Processing Gemini Response ===")
+        print(f"Response type: {type(response)}")
+        print(f"Raw response preview: {str(response.text)[:200]}...")
+
+        # Extract JSON from the response
+        response_text = response.text
+        # Remove any markdown code block syntax if present
+        response_text = response_text.replace('```json', '').replace('```', '').strip()
+        print("\nCleaned response text preview:")
+        print(response_text[:200])
+
+        print("\n=== Parsing JSON ===")
+        extracted_data = json.loads(response_text)
+        print("JSON parsed successfully")
+        print(f"Extracted data keys: {list(extracted_data.keys())}")
+
+        # Ensure all required fields are present
+        required_fields = [
+            "property_owner", "property_area", "property_location", "property_coordinates",
+            "property_value", "loan_limit", "risk_summary"
+        ]
+        
+        # Initialize missing fields with empty values
+        for field in required_fields:
+            if field not in extracted_data:
+                print(f"Adding missing field: {field}")
+                extracted_data[field] = ""
+            else:
+                print(f"Field {field} present with value type: {type(extracted_data[field])}")
+
+        print("\n=== Extraction Complete ===")
+        return extracted_data
+
+    except Exception as e:
+        print(f"\n!!! ERROR in extract_property_data_from_image: {str(e)}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        return None
+
 def extract_loan_data_from_image(image, model):
     """Extract loan data from a single image using Gemini vision model"""
     try:
@@ -113,11 +192,12 @@ def extract_loan_data_from_image(image, model):
         print(f"Traceback: {traceback.format_exc()}")
         return None
 
-def extract_data_from_document(file_path):
+def extract_data_from_document(file_path, document_type='loan'):
     """Process document and extract structured data using Gemini vision model"""
     try:
         print(f"\n=== Starting Document Processing ===")
         print(f"Processing file: {file_path}")
+        print(f"Document type: {document_type}")
         print(f"File exists: {os.path.exists(file_path)}")
         print(f"File size: {os.path.getsize(file_path)} bytes")
 
@@ -128,11 +208,11 @@ def extract_data_from_document(file_path):
         print("Gemini model initialized")
         
         all_extracted_data = []
+        extract_function = extract_loan_data_from_image if document_type == 'loan' else extract_property_data_from_image
         
         # Handle PDF files
         if file_path.lower().endswith('.pdf'):
             print("\nProcessing PDF file...")
-            # Explicitly set poppler path
             poppler_path = r"C:\Program Files\poppler-24.08.0\Library\bin"
             print(f"Using Poppler path: {poppler_path}")
             print(f"Poppler path exists: {os.path.exists(poppler_path)}")
@@ -150,7 +230,7 @@ def extract_data_from_document(file_path):
             for i, image in enumerate(images, 1):
                 print(f"\nProcessing page {i}/{len(images)}")
                 print(f"Image size: {image.size}")
-                extracted = extract_loan_data_from_image(image, model)
+                extracted = extract_function(image, model)
                 if extracted:
                     print(f"Successfully extracted data from page {i}")
                     all_extracted_data.append(extracted)
@@ -161,7 +241,7 @@ def extract_data_from_document(file_path):
             print("\nProcessing image file...")
             with Image.open(file_path) as image:
                 print(f"Image opened successfully. Size: {image.size}, Mode: {image.mode}")
-                extracted = extract_loan_data_from_image(image, model)
+                extracted = extract_function(image, model)
                 if extracted:
                     print("Successfully extracted data from image")
                     all_extracted_data.append(extracted)
@@ -183,7 +263,7 @@ def extract_data_from_document(file_path):
             for key, value in data.items():
                 if not merged_data[key] and value:
                     merged_data[key] = value
-                # Append arrays
+                # Append arrays for loan documents
                 if isinstance(value, list):
                     merged_data[key].extend(value)
         
@@ -199,7 +279,6 @@ def extract_data_from_document(file_path):
         print(f"Error type: {type(e)}")
         import traceback
         print(f"Traceback: {traceback.format_exc()}")
-        logger.error(f"Document processing failed: {str(e)}", exc_info=True)
         return {
             'success': False,
             'error': str(e)

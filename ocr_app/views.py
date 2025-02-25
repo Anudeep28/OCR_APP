@@ -6,7 +6,7 @@ from django.utils.decorators import method_decorator
 from django.contrib import messages
 from django.core.files.storage import FileSystemStorage
 from .services.rag_utils import extract_data_from_document
-from .models import CustomUser, LoanDocument
+from .models import CustomUser, LoanDocument, PropertyDocument
 from django.views.generic.edit import CreateView
 from django.urls import reverse_lazy
 from .forms import CustomUserCreationForm
@@ -43,6 +43,12 @@ class DocumentProcessView(View):
             return render(request, self.template_name)
         
         document = request.FILES['document']
+        document_type = request.POST.get('document_type')
+        
+        if not document_type:
+            messages.error(request, 'Please select a document type')
+            return render(request, self.template_name)
+        
         print(f"\nProcessing uploaded file: {document.name}")
         
         fs = FileSystemStorage()
@@ -53,61 +59,75 @@ class DocumentProcessView(View):
         try:
             # Extract data from document
             print("Calling extract_data_from_document...")
-            result = extract_data_from_document(file_path)
+            result = extract_data_from_document(file_path, document_type)
             print(f"Extraction result: {result}")
             
             if not result['success']:
                 messages.error(request, f"Error processing document: {result.get('error', 'Unknown error')}")
                 return render(request, self.template_name)
             
-            # Create LoanDocument instance
-            print("Creating LoanDocument instance...")
-            
-            # Handle date fields
-            loan_sanction_date = result['structured_data'].get('loan_sanction_date')
-            if loan_sanction_date == 'None' or loan_sanction_date is None:
-                loan_sanction_date = None
+            if document_type == 'loan':
+                # Handle loan document
+                loan_sanction_date = result['structured_data'].get('loan_sanction_date')
+                if loan_sanction_date == 'None' or loan_sanction_date is None:
+                    loan_sanction_date = None
+                    
+                date_of_birth = result['structured_data'].get('date_of_birth')
+                if date_of_birth == 'None' or date_of_birth is None:
+                    date_of_birth = None
                 
-            date_of_birth = result['structured_data'].get('date_of_birth')
-            if date_of_birth == 'None' or date_of_birth is None:
-                date_of_birth = None
-            
-            # Handle numeric fields
-            loan_amount = result['structured_data'].get('loan_amount')
-            if loan_amount == 'None' or loan_amount is None:
-                loan_amount = None
+                loan_amount = result['structured_data'].get('loan_amount')
+                if loan_amount == 'None' or loan_amount is None:
+                    loan_amount = None
+                    
+                loan_balance = result['structured_data'].get('loan_balance')
+                if loan_balance == 'None' or loan_balance is None:
+                    loan_balance = None
                 
-            loan_balance = result['structured_data'].get('loan_balance')
-            if loan_balance == 'None' or loan_balance is None:
-                loan_balance = None
-            
-            loan_doc = LoanDocument(
-                user=request.user,
-                borrower_name=result['structured_data'].get('borrower_name') or '',
-                date_of_birth=date_of_birth,
-                sex=result['structured_data'].get('sex') or '',
-                father_name=result['structured_data'].get('father_name') or '',
-                spouse_name=result['structured_data'].get('spouse_name') or '',
-                aadhar_number=result['structured_data'].get('aadhar_number') or '',
-                pan_number=result['structured_data'].get('pan_number') or '',
-                passport_number=result['structured_data'].get('passport_number') or '',
-                driving_license=result['structured_data'].get('driving_license') or '',
-                loan_amount=loan_amount,
-                loan_sanction_date=loan_sanction_date,
-                loan_balance=loan_balance,
-                witness_details=result['structured_data'].get('witness_details') or [],
-                emi_history=result['structured_data'].get('emi_history') or [],
-                credibility_summary=result['structured_data'].get('credibility_summary') or ''
-            )
-            loan_doc.save()
-            print("LoanDocument saved successfully")
+                loan_doc = LoanDocument(
+                    user=request.user,
+                    borrower_name=result['structured_data'].get('borrower_name') or '',
+                    date_of_birth=date_of_birth,
+                    sex=result['structured_data'].get('sex') or '',
+                    father_name=result['structured_data'].get('father_name') or '',
+                    spouse_name=result['structured_data'].get('spouse_name') or '',
+                    aadhar_number=result['structured_data'].get('aadhar_number') or '',
+                    pan_number=result['structured_data'].get('pan_number') or '',
+                    passport_number=result['structured_data'].get('passport_number') or '',
+                    driving_license=result['structured_data'].get('driving_license') or '',
+                    loan_amount=loan_amount,
+                    loan_sanction_date=loan_sanction_date,
+                    loan_balance=loan_balance,
+                    witness_details=result['structured_data'].get('witness_details') or [],
+                    emi_history=result['structured_data'].get('emi_history') or [],
+                    credibility_summary=result['structured_data'].get('credibility_summary') or ''
+                )
+                loan_doc.save()
+                context = {
+                    'extracted_data': result['structured_data'],
+                    'loan_doc': loan_doc,
+                    'document_type': 'loan'
+                }
+            else:
+                # Handle property document
+                property_doc = PropertyDocument(
+                    user=request.user,
+                    property_owner=result['structured_data'].get('property_owner') or '',
+                    property_area=result['structured_data'].get('property_area') or '',
+                    property_location=result['structured_data'].get('property_location') or '',
+                    property_coordinates=result['structured_data'].get('property_coordinates') or '',
+                    property_value=result['structured_data'].get('property_value') or 0,
+                    loan_limit=result['structured_data'].get('loan_limit') or 0,
+                    risk_summary=result['structured_data'].get('risk_summary') or ''
+                )
+                property_doc.save()
+                context = {
+                    'extracted_data': result['structured_data'],
+                    'property_doc': property_doc,
+                    'document_type': 'property'
+                }
             
             messages.success(request, 'Document processed successfully!')
-            context = {
-                'extracted_data': result['structured_data'],
-                'loan_doc': loan_doc
-            }
-            print(f"Rendering template with context: {context}")
             return render(request, self.template_name, context)
             
         except Exception as e:

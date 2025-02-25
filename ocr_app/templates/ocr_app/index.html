@@ -1,223 +1,28 @@
-{% extends 'ocr_app/base.html' %}
+{% extends "ocr_app/base.html" %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto">
-    <div class="bg-white shadow-xl rounded-lg p-6">
-        <h1 class="text-3xl font-bold text-gray-800 mb-8 text-center">Extract Text from Images & PDFs</h1>
-        
-        <!-- File Upload Section -->
-        <div class="mb-8">
-            <form id="upload-form" class="space-y-4">
-                {% csrf_token %}
-                <div class="flex items-center justify-center w-full">
-                    <label for="file-upload" class="flex flex-col items-center justify-center w-full h-64 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                            <i class="fas fa-cloud-upload-alt text-4xl text-gray-500 mb-4"></i>
-                            <p class="mb-2 text-sm text-gray-500"><span class="font-semibold">Click to upload</span> or drag and drop</p>
-                            <p class="text-xs text-gray-500">PDF, PNG, JPG or JPEG (max. 10MB)</p>
-                        </div>
-                        <input id="file-upload" type="file" class="hidden" accept=".pdf,.png,.jpg,.jpeg" />
-                    </label>
-                </div>
-                
-                <div id="file-info" class="hidden">
-                    <div class="flex items-center space-x-2 text-sm text-gray-500">
-                        <i class="fas fa-file"></i>
-                        <span id="filename"></span>
-                        <button type="button" id="remove-file" class="text-red-500 hover:text-red-700">
-                            <i class="fas fa-times"></i>
-                        </button>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 text-center">
+            <h1 class="display-4 mb-4">Welcome to OCR Document Processor</h1>
+            <p class="lead mb-4">Extract text and data from your documents using advanced OCR technology</p>
+            
+            {% if user.is_authenticated %}
+                {% if user.is_app_user %}
+                    <a href="{% url 'ocr_app:document-upload' %}" class="btn btn-primary btn-lg">
+                        Upload Document
+                    </a>
+                {% else %}
+                    <div class="alert alert-info">
+                        Contact admin to get access to document processing features.
                     </div>
+                {% endif %}
+            {% else %}
+                <div class="d-grid gap-3 d-sm-flex justify-content-sm-center">
+                    <a href="{% url 'login' %}" class="btn btn-primary btn-lg px-4 gap-3">Login</a>
                 </div>
-                
-                <button type="submit" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 transition duration-300">
-                    Process File
-                </button>
-            </form>
-        </div>
-
-        <!-- Loading Indicator -->
-        <div id="loading" class="hidden">
-            <div class="flex justify-center items-center space-x-2">
-                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-                <span class="text-gray-600">Processing...</span>
-            </div>
-        </div>
-
-        <!-- Results Section -->
-        <div id="results" class="hidden space-y-6">
-            <div class="border-t pt-6">
-                <h2 class="text-xl font-semibold text-gray-800 mb-4">Results</h2>
-                <!-- Download Buttons -->
-                <div class="flex space-x-4 mb-4">
-                    <button id="download-markdown" class="bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition duration-300 hidden">
-                        <i class="fas fa-download mr-2"></i>Download Markdown
-                    </button>
-                    <button id="download-excel" class="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition duration-300 hidden">
-                        <i class="fas fa-file-excel mr-2"></i>Download Excel
-                    </button>
-                </div>
-                
-                <!-- Tabs -->
-                <div class="border-b border-gray-200">
-                    <nav class="-mb-px flex space-x-8">
-                        <button class="tab-btn active border-indigo-500 text-indigo-600 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm" data-tab="markdown">
-                            Markdown
-                        </button>
-                        <button class="tab-btn border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm" data-tab="preview">
-                            Preview
-                        </button>
-                        <button class="tab-btn border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm" data-tab="raw">
-                            Raw Text
-                        </button>
-                    </nav>
-                </div>
-
-                <!-- Tab Contents -->
-                <div class="mt-4">
-                    <div id="markdown-content" class="tab-content">
-                        <pre class="bg-gray-50 rounded-lg p-4 overflow-auto max-h-96"></pre>
-                    </div>
-                    <div id="preview-content" class="tab-content hidden prose max-w-none">
-                    </div>
-                    <div id="raw-content" class="tab-content hidden">
-                        <pre class="bg-gray-50 rounded-lg p-4 overflow-auto max-h-96"></pre>
-                    </div>
-                </div>
-            </div>
+            {% endif %}
         </div>
     </div>
 </div>
-
-<script>
-let currentDocId = null;
-const downloadMarkdownBtn = document.getElementById('download-markdown');
-const downloadExcelBtn = document.getElementById('download-excel');
-document.addEventListener('DOMContentLoaded', function() {
-    // Function to get CSRF token from cookies
-    function getCookie(name) {
-        let cookieValue = null;
-        if (document.cookie && document.cookie !== '') {
-            const cookies = document.cookie.split(';');
-            for (let i = 0; i < cookies.length; i++) {
-                const cookie = cookies[i].trim();
-                if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                    break;
-                }
-            }
-        }
-        return cookieValue;
-    }
-
-    const form = document.getElementById('upload-form');
-    const fileInput = document.getElementById('file-upload');
-    const fileInfo = document.getElementById('file-info');
-    const filename = document.getElementById('filename');
-    const removeFile = document.getElementById('remove-file');
-    const loading = document.getElementById('loading');
-    const results = document.getElementById('results');
-    
-    // File input handling
-    fileInput.addEventListener('change', function(e) {
-        if (this.files.length > 0) {
-            const file = this.files[0];
-            filename.textContent = file.name;
-            fileInfo.classList.remove('hidden');
-        }
-    });
-    
-    removeFile.addEventListener('click', function() {
-        fileInput.value = '';
-        fileInfo.classList.add('hidden');
-    });
-    
-    // Form submission
-    form.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        if (!fileInput.files.length) {
-            alert('Please select a file first.');
-            return;
-        }
-        
-        const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
-        
-        loading.classList.remove('hidden');
-        results.classList.add('hidden');
-        
-        try {
-            const response = await fetch('/upload/', {
-                method: 'POST',
-                headers: {
-                    'X-CSRFToken': getCookie('csrftoken')
-                },
-                body: formData
-            });
-            
-            const data = await response.json();
-            
-            if (data.error) {
-                alert(data.error);
-                return;
-            }
-            
-            // Update results
-            document.querySelector('#markdown-content pre').textContent = data.markdown;
-            document.querySelector('#preview-content').innerHTML = data.html;
-            document.querySelector('#raw-content pre').textContent = data.text;
-
-            // Show download buttons and store document ID
-            if (data.doc_id) {
-                currentDocId = data.doc_id;
-                downloadMarkdownBtn.classList.remove('hidden');
-                downloadExcelBtn.classList.remove('hidden');
-            }
-            
-            results.classList.remove('hidden');
-        } catch (error) {
-            alert('An error occurred while processing the file.');
-        } finally {
-            loading.classList.add('hidden');
-        }
-    });
-
-    // Download button handlers
-    downloadMarkdownBtn.addEventListener('click', function() {
-        if (currentDocId) {
-            window.location.href = `/download/markdown/${currentDocId}/`;
-        }
-    });
-    
-    downloadExcelBtn.addEventListener('click', function() {
-        if (currentDocId) {
-            window.location.href = `/download/excel/${currentDocId}/`;
-        }
-    });
-
-    // Tab switching
-    const tabButtons = document.querySelectorAll('.tab-btn');
-    const tabContents = document.querySelectorAll('.tab-content');
-    
-    tabButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            // Update button states
-            tabButtons.forEach(btn => {
-                btn.classList.remove('border-indigo-500', 'text-indigo-600');
-                btn.classList.add('border-transparent', 'text-gray-500');
-            });
-            button.classList.remove('border-transparent', 'text-gray-500');
-            button.classList.add('border-indigo-500', 'text-indigo-600');
-            
-            // Update content visibility
-            const tabName = button.dataset.tab;
-            tabContents.forEach(content => {
-                content.classList.add('hidden');
-            });
-            document.getElementById(`${tabName}-content`).classList.remove('hidden');
-        });
-    });
-});
-</script>
 {% endblock %}

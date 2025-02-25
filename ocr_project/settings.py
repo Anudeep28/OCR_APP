@@ -136,10 +136,20 @@ ALLOWED_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg']
 # Together API configuration
 TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
 
+# Google Generative AI configuration
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+
 # Tesseract configuration
-TESSERACT_CMD = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# TESSERACT_CMD = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ocr_project/settings.py
+AUTH_USER_MODEL = 'ocr_app.CustomUser'
+
+LOGIN_URL = '/accounts/login/'
+LOGIN_REDIRECT_URL = '/document-upload/'
+LOGOUT_REDIRECT_URL = '/'

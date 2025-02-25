@@ -1,0 +1,146 @@
+<!-- ocr_app/templates/ocr_app/document_upload.html -->
+{% extends "ocr_app/base.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">Upload Loan Document</h4>
+                </div>
+                <div class="card-body">
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label for="document" class="form-label">Select Document (PDF/Image)</label>
+                            <input type="file" class="form-control" id="document" name="document" accept=".pdf,.jpg,.jpeg,.png" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Upload & Process</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        {% if extracted_data %}
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0">Extracted Information</h4>
+                </div>
+                <div class="card-body">
+                    <div class="accordion" id="loanInfoAccordion">
+                        <!-- Personal Information -->
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#personalInfo">
+                                    Personal Information
+                                </button>
+                            </h2>
+                            <div id="personalInfo" class="accordion-collapse collapse show">
+                                <div class="accordion-body">
+                                    <dl class="row">
+                                        <dt class="col-sm-4">Borrower Name</dt>
+                                        <dd class="col-sm-8">{{ extracted_data.borrower_name }}</dd>
+                                        
+                                        <dt class="col-sm-4">Date of Birth</dt>
+                                        <dd class="col-sm-8">{{ extracted_data.date_of_birth }}</dd>
+                                        
+                                        <dt class="col-sm-4">Sex</dt>
+                                        <dd class="col-sm-8">{{ extracted_data.sex }}</dd>
+                                        
+                                        <dt class="col-sm-4">Father's Name</dt>
+                                        <dd class="col-sm-8">{{ extracted_data.father_name }}</dd>
+                                        
+                                        <dt class="col-sm-4">Spouse Name</dt>
+                                        <dd class="col-sm-8">{{ extracted_data.spouse_name }}</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Identity Information -->
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#identityInfo">
+                                    Identity Information
+                                </button>
+                            </h2>
+                            <div id="identityInfo" class="accordion-collapse collapse">
+                                <div class="accordion-body">
+                                    <dl class="row">
+                                        <dt class="col-sm-4">Aadhar Number</dt>
+                                        <dd class="col-sm-8">{{ extracted_data.aadhar_number }}</dd>
+                                        
+                                        <dt class="col-sm-4">PAN Number</dt>
+                                        <dd class="col-sm-8">{{ extracted_data.pan_number }}</dd>
+                                        
+                                        <dt class="col-sm-4">Passport Number</dt>
+                                        <dd class="col-sm-8">{{ extracted_data.passport_number }}</dd>
+                                        
+                                        <dt class="col-sm-4">Driving License</dt>
+                                        <dd class="col-sm-8">{{ extracted_data.driving_license }}</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Loan Information -->
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#loanInfo">
+                                    Loan Information
+                                </button>
+                            </h2>
+                            <div id="loanInfo" class="accordion-collapse collapse">
+                                <div class="accordion-body">
+                                    <dl class="row">
+                                        <dt class="col-sm-4">Loan Amount</dt>
+                                        <dd class="col-sm-8">₹{{ extracted_data.loan_amount }}</dd>
+                                        
+                                        <dt class="col-sm-4">Sanction Date</dt>
+                                        <dd class="col-sm-8">{{ extracted_data.loan_sanction_date }}</dd>
+                                        
+                                        <dt class="col-sm-4">Loan Balance</dt>
+                                        <dd class="col-sm-8">₹{{ extracted_data.loan_balance }}</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Additional Information -->
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#additionalInfo">
+                                    Additional Information
+                                </button>
+                            </h2>
+                            <div id="additionalInfo" class="accordion-collapse collapse">
+                                <div class="accordion-body">
+                                    <h5>Witness Details</h5>
+                                    <ul class="list-unstyled">
+                                    {% for witness in extracted_data.witness_details %}
+                                        <li>{{ witness }}</li>
+                                    {% endfor %}
+                                    </ul>
+                                    
+                                    <h5 class="mt-3">EMI Payment History</h5>
+                                    <ul class="list-unstyled">
+                                    {% for payment in extracted_data.emi_history %}
+                                        <li>{{ payment }}</li>
+                                    {% endfor %}
+                                    </ul>
+                                    
+                                    <h5 class="mt-3">Credibility Summary</h5>
+                                    <p>{{ extracted_data.credibility_summary }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

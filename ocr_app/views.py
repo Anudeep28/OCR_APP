@@ -1,170 +1,131 @@
-from django.shortcuts import render
-import os
-import json
-import requests
-from django.http import JsonResponse, HttpResponse, FileResponse
-from django.conf import settings
+# ocr_app/views.py
+from django.views import View
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+from django.utils.decorators import method_decorator
+from django.contrib import messages
 from django.core.files.storage import FileSystemStorage
-from .models import OCRDocument
-import pytesseract
-from PIL import Image
-from pdf2image import convert_from_path
-import markdown
-from together import Together
-import base64
-import pandas as pd
-from io import BytesIO
-from bs4 import BeautifulSoup
-import markdown2
+from .services.rag_utils import extract_data_from_document
+from .models import CustomUser, LoanDocument
+from django.views.generic.edit import CreateView
+from django.urls import reverse_lazy
+from .forms import CustomUserCreationForm
 
-# Configure Tesseract path
-tesseract_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-if not os.path.exists(tesseract_path):
-    raise FileNotFoundError(f"Tesseract not found at {tesseract_path}. Please install Tesseract-OCR.")
-pytesseract.pytesseract.tesseract_cmd = tesseract_path
-
-def index(request):
+def home(request):
     return render(request, 'ocr_app/index.html')
 
-def process_image(image_path):
-    try:
-        img = Image.open(image_path)
-        text = pytesseract.image_to_string(img)
-        return text
-    except Exception as e:
-        return str(e)
+# Access control decorator from MEMORY
+def app_access_required(view_func):
+    from functools import wraps
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            messages.error(request, "Please log in to access this feature")
+            return redirect('login')
+        if not request.user.is_app_user:
+            messages.error(request, "You don't have access to document processing features")
+            return redirect('ocr_app:home')
+        return view_func(request, *args, **kwargs)
+    return wrapper
 
-def process_pdf(pdf_path):
-    try:
-        pages = convert_from_path(pdf_path)
-        text = ""
-        for page in pages:
-            text += pytesseract.image_to_string(page) + "\n\n"
-        return text
-    except Exception as e:
-        return str(e)
 
-def process_with_llm(file_path):
-    try:
-        # Initialize Together with API key from settings
-        client = Together(api_key=settings.TOGETHER_API_KEY)
+class DocumentProcessView(View):
+    template_name = 'ocr_app/document_upload.html'
+    
+    @method_decorator(app_access_required)
+    def get(self, request):
+        return render(request, self.template_name)
+    
+    @method_decorator(app_access_required)
+    def post(self, request):
+        if 'document' not in request.FILES:
+            messages.error(request, 'Please select a document to upload')
+            return render(request, self.template_name)
         
-        # Read and encode the image file
-        with open(file_path, 'rb') as image_file:
-            base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+        document = request.FILES['document']
+        print(f"\nProcessing uploaded file: {document.name}")
         
-        # Create the chat completion with image
-        response = client.chat.completions.create(
-            model="meta-llama/Llama-Vision-Free",
-            messages=[{
-                "role": "system",
-                "content": """Convert the provided image into Markdown format. Ensure that all content from the page is included, such as headers, footers, subtexts, images (with all text if possible), tables, and any other elements.
-  Requirements:
-
-  - Output Only Markdown: Return solely the Markdown content without any additional explanations or comments.
-  - No Delimiters: Do not use code fences or delimiters like \`\`\`markdown.
-  - Complete Content: Do not omit any part of the page, including headers, footers, and subtext.
-  """,
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}"
-                        }
-                    }
-                ]
-            }],
-            max_tokens=512,
-            temperature=0.7,
-            top_p=0.7,
-            top_k=50,
-            repetition_penalty=1,
-            stop=["<|eot_id|>","<|eom_id|>"]
-        )
-        
-        # Get the response content
-        markdown_text = response.choices[0].message.content
-        return markdown_text
-    except Exception as e:
-        return str(e)
-
-def upload_file(request):
-    if request.method == 'POST' and request.FILES.get('file'):
-        file = request.FILES['file']
-        
-        # Validate file extension
-        ext = os.path.splitext(file.name)[1].lower()
-        if ext not in ['.pdf', '.png', '.jpg', '.jpeg']:
-            return JsonResponse({'error': 'Invalid file format'})
-            
-        # Save the file
         fs = FileSystemStorage()
-        filename = fs.save(f"documents/{file.name}", file)
+        filename = fs.save(document.name, document)
         file_path = fs.path(filename)
+        print(f"File saved to: {file_path}")
         
-        # Process the file
-        if ext == '.pdf':
-            extracted_text = process_pdf(file_path)
-        else:
-            extracted_text = process_image(file_path)
+        try:
+            # Extract data from document
+            print("Calling extract_data_from_document...")
+            result = extract_data_from_document(file_path)
+            print(f"Extraction result: {result}")
             
-        # Process with LLM
-        markdown_output = process_with_llm(file_path)
-        
-        # Save to database
-        doc = OCRDocument.objects.create(
-            file=filename,
-            processed_text=extracted_text,
-            markdown_output=markdown_output
-        )
-        
-        return JsonResponse({
-            'success': True,
-            'text': extracted_text,
-            'markdown': markdown_output,
-            'html': markdown.markdown(markdown_output),
-            'doc_id': doc.id
-        })
-        
-    return JsonResponse({'error': 'No file uploaded'})
+            if not result['success']:
+                messages.error(request, f"Error processing document: {result.get('error', 'Unknown error')}")
+                return render(request, self.template_name)
+            
+            # Create LoanDocument instance
+            print("Creating LoanDocument instance...")
+            
+            # Handle date fields
+            loan_sanction_date = result['structured_data'].get('loan_sanction_date')
+            if loan_sanction_date == 'None' or loan_sanction_date is None:
+                loan_sanction_date = None
+                
+            date_of_birth = result['structured_data'].get('date_of_birth')
+            if date_of_birth == 'None' or date_of_birth is None:
+                date_of_birth = None
+            
+            # Handle numeric fields
+            loan_amount = result['structured_data'].get('loan_amount')
+            if loan_amount == 'None' or loan_amount is None:
+                loan_amount = None
+                
+            loan_balance = result['structured_data'].get('loan_balance')
+            if loan_balance == 'None' or loan_balance is None:
+                loan_balance = None
+            
+            loan_doc = LoanDocument(
+                user=request.user,
+                borrower_name=result['structured_data'].get('borrower_name') or '',
+                date_of_birth=date_of_birth,
+                sex=result['structured_data'].get('sex') or '',
+                father_name=result['structured_data'].get('father_name') or '',
+                spouse_name=result['structured_data'].get('spouse_name') or '',
+                aadhar_number=result['structured_data'].get('aadhar_number') or '',
+                pan_number=result['structured_data'].get('pan_number') or '',
+                passport_number=result['structured_data'].get('passport_number') or '',
+                driving_license=result['structured_data'].get('driving_license') or '',
+                loan_amount=loan_amount,
+                loan_sanction_date=loan_sanction_date,
+                loan_balance=loan_balance,
+                witness_details=result['structured_data'].get('witness_details') or [],
+                emi_history=result['structured_data'].get('emi_history') or [],
+                credibility_summary=result['structured_data'].get('credibility_summary') or ''
+            )
+            loan_doc.save()
+            print("LoanDocument saved successfully")
+            
+            messages.success(request, 'Document processed successfully!')
+            context = {
+                'extracted_data': result['structured_data'],
+                'loan_doc': loan_doc
+            }
+            print(f"Rendering template with context: {context}")
+            return render(request, self.template_name, context)
+            
+        except Exception as e:
+            print(f"Error in post method: {str(e)}")
+            messages.error(request, f'Error processing document: {str(e)}')
+            return render(request, self.template_name)
+            
+        finally:
+            if 'file_path' in locals():
+                fs.delete(filename)
 
-def download_markdown(request, doc_id):
-    try:
-        doc = OCRDocument.objects.get(id=doc_id)
-        response = HttpResponse(doc.markdown_output, content_type='text/markdown')
-        response['Content-Disposition'] = f'attachment; filename="output_{doc_id}.md"'
-        return response
-    except OCRDocument.DoesNotExist:
-        return JsonResponse({'error': 'Document not found'}, status=404)
 
-def download_excel(request, doc_id):
-    try:
-        doc = OCRDocument.objects.get(id=doc_id)
-        # Convert markdown to HTML
-        html_content = markdown2.markdown(doc.markdown_output)
-        
-        # Extract relevant data from HTML (this is a simplified approach)
-        # You may need to use BeautifulSoup or similar to parse the HTML properly
-        df_data = []
-        # Example: Extracting paragraphs as rows
-        soup = BeautifulSoup(html_content, 'html.parser')
-        for p in soup.find_all('p'):
-            df_data.append([p.get_text()])  # Assuming each paragraph is a row
-        
-        # Create DataFrame from extracted data
-        df = pd.DataFrame(df_data, columns=['Content'])
-        
-        # Create Excel file
-        excel_file = BytesIO()
-        # print(df.head())
-        df.to_excel(excel_file, index=False, engine='openpyxl')
-        excel_file.seek(0)
-        
-        response = HttpResponse(excel_file.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        response['Content-Disposition'] = f'attachment; filename="output_{doc_id}.xlsx"'
+class SignUpView(CreateView):
+    form_class = CustomUserCreationForm
+    success_url = reverse_lazy('login')
+    template_name = 'registration/signup.html'
+    
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, 'Account created successfully! Please log in.')
         return response
-    except OCRDocument.DoesNotExist:
-        return JsonResponse({'error': 'Document not found'}, status=404)

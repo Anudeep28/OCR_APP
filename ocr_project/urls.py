@@ -21,5 +21,7 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('ocr_app.urls')),
+    path('accounts/', include('django.contrib.auth.urls')),
+    # path('app/', include('ocr_app.urls')),  # Move app URLs under /app/
+    path('', include('ocr_app.urls')),  # Root URL will show home page
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

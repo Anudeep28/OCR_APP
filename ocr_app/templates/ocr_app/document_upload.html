@@ -1,5 +1,5 @@
 <!-- ocr_app/templates/ocr_app/document_upload.html -->
-{% extends 'ocr_app/base.html' %}
+{% extends "ocr_app/base.html" %}
 {% load static %}
 
 {% block content %}
@@ -8,16 +8,33 @@
         <div class="col-md-8">
             <div class="card">
                 <div class="card-header">
-                    <h3 class="text-center">Document Upload</h3>
+                    <h2 class="text-center">Document Upload</h2>
                 </div>
                 <div class="card-body">
+                    {% if messages %}
+                    <div class="messages">
+                        {% for message in messages %}
+                        <div class="alert {% if message.tags %}alert-{{ message.tags }}{% endif %}">
+                            {{ message }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
                     <form method="post" enctype="multipart/form-data" class="needs-validation" novalidate>
                         {% csrf_token %}
-                        
+                        <div class="mb-3">
+                            <label for="document" class="form-label">Select Document</label>
+                            <input type="file" class="form-control" id="document" name="document" required>
+                            <div class="invalid-feedback">
+                                Please select a document to upload.
+                            </div>
+                        </div>
+
                         <div class="mb-3">
                             <label for="document_type" class="form-label">Document Type</label>
                             <select class="form-select" id="document_type" name="document_type" required>
-                                <option value="">Select document type...</option>
+                                <option value="">Choose...</option>
                                 <option value="loan">Loan Document</option>
                                 <option value="property">Property Document</option>
                             </select>
@@ -26,65 +43,193 @@
                             </div>
                         </div>
 
-                        <div class="mb-3">
-                            <label for="document" class="form-label">Upload Document</label>
-                            <input type="file" class="form-control" id="document" name="document" required>
-                            <div class="invalid-feedback">
-                                Please select a document to upload.
-                            </div>
-                        </div>
-
                         <div class="d-grid">
-                            <button type="submit" class="btn btn-primary">Process Document</button>
+                            <button type="submit" class="btn btn-primary">Upload & Process</button>
                         </div>
                     </form>
-
-                    {% if messages %}
-                    <div class="mt-3">
-                        {% for message in messages %}
-                        <div class="alert alert-{{ message.tags }}">
-                            {{ message }}
-                        </div>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-
-                    {% if extracted_data %}
-                    <div class="mt-4">
-                        <h4>Extracted Information</h4>
-                        <div class="table-responsive">
-                            {% if document_type == 'loan' %}
-                                <table class="table table-bordered">
-                                    <tr><th>Borrower Name</th><td>{{ loan_doc.borrower_name }}</td></tr>
-                                    <tr><th>Date of Birth</th><td>{{ loan_doc.date_of_birth }}</td></tr>
-                                    <tr><th>Sex</th><td>{{ loan_doc.sex }}</td></tr>
-                                    <tr><th>Father's Name</th><td>{{ loan_doc.father_name }}</td></tr>
-                                    <tr><th>Spouse Name</th><td>{{ loan_doc.spouse_name }}</td></tr>
-                                    <tr><th>Aadhar Number</th><td>{{ loan_doc.aadhar_number }}</td></tr>
-                                    <tr><th>PAN Number</th><td>{{ loan_doc.pan_number }}</td></tr>
-                                    <tr><th>Passport Number</th><td>{{ loan_doc.passport_number }}</td></tr>
-                                    <tr><th>Driving License</th><td>{{ loan_doc.driving_license }}</td></tr>
-                                    <tr><th>Loan Amount</th><td>{{ loan_doc.loan_amount }}</td></tr>
-                                    <tr><th>Loan Sanction Date</th><td>{{ loan_doc.loan_sanction_date }}</td></tr>
-                                    <tr><th>Loan Balance</th><td>{{ loan_doc.loan_balance }}</td></tr>
-                                    <tr><th>Credibility Summary</th><td>{{ loan_doc.credibility_summary }}</td></tr>
-                                </table>
-                            {% else %}
-                                <table class="table table-bordered">
-                                    <tr><th>Property Owner(s)</th><td>{{ property_doc.property_owner }}</td></tr>
-                                    <tr><th>Property Area</th><td>{{ property_doc.property_area }}</td></tr>
-                                    <tr><th>Property Location</th><td>{{ property_doc.property_location }}</td></tr>
-                                    <tr><th>Property Coordinates</th><td>{{ property_doc.property_coordinates }}</td></tr>
-                                    <tr><th>Property Value</th><td>{{ property_doc.property_value }}</td></tr>
-                                    <tr><th>Loan Limit</th><td>{{ property_doc.loan_limit }}</td></tr>
-                                    <tr><th>Risk Summary</th><td>{{ property_doc.risk_summary }}</td></tr>
-                                </table>
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% endif %}
                 </div>
             </div>
+
+            {% if processed_data %}
+            <div class="container mt-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Processed Document Results</h3>
+                    </div>
+                    <div class="card-body">
+                        {% if document_type == 'loan' %}
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h4>Original Text</h4>
+                                <dl class="row">
+                                    <dt class="col-sm-4">Borrower Name</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.borrower_name_original|default:"-" }}</dd>
+                                    
+                                    <dt class="col-sm-4">Date of Birth</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.date_of_birth|default:"-" }}</dd>
+                                    
+                                    <dt class="col-sm-4">Father's Name</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.father_name_original|default:"-" }}</dd>
+                                    
+                                    <dt class="col-sm-4">Spouse's Name</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.spouse_name_original|default:"-" }}</dd>
+                                    
+                                    <dt class="col-sm-4">Sex</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.sex_original|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Aadhar Number</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.aadhar_number|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">PAN Number</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.pan_number|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Passport Number</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.passport_number|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Driving License</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.driving_license|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Loan Amount</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.loan_amount|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Loan Sanction Date</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.loan_sanction_date|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Loan Balance</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.loan_balance|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Witness Details</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.witness_details|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">EMI History</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.emi_history|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Credibility Summary</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.credibility_summary_original|default:"-" }}</dd>
+                                </dl>
+                            </div>
+                            <div class="col-md-6">
+                                <h4>English Translation</h4>
+                                <dl class="row">
+                                    <dt class="col-sm-4">Borrower Name</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.borrower_name_translated|default:"-" }}</dd>
+                                    
+                                    <dt class="col-sm-4">Date of Birth</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.date_of_birth|default:"-" }}</dd>
+                                    
+                                    <dt class="col-sm-4">Father's Name</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.father_name_translated|default:"-" }}</dd>
+                                    
+                                    <dt class="col-sm-4">Spouse's Name</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.spouse_name_translated|default:"-" }}</dd>
+                                    
+                                    <dt class="col-sm-4">Sex</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.sex_translated|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Aadhar Number</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.aadhar_number|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">PAN Number</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.pan_number|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Passport Number</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.passport_number|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Driving License</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.driving_license|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Loan Purpose</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.loan_purpose_translated|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Loan Amount</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.loan_amount|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Loan Sanction Date</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.loan_sanction_date|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Loan Balance</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.loan_balance|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Witness Details</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.witness_details|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">EMI History</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.emi_history|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Credibility Summary</dt>
+                                    <dd class="col-sm-8">{{ loan_doc.credibility_summary_translated|default:"-" }}</dd>
+
+                                    <dt class="col-sm-4">Languages Detected</dt>
+                                    <dd class="col-sm-8">
+                                        {% for field, lang in languages_detected %}
+                                            {% if lang != 'en' and lang != 'none' and lang != '' and lang %}
+                                                <div>{{ field }} was in : {{ lang }}</div>
+                                            {% endif %}
+                                        {% empty %}
+                                            <div>All fields are in English</div>
+                                        {% endfor %}
+                                    </dd>
+                                </dl>
+                            </div>
+                        </div>
+                        {% elif document_type == 'property' %}
+                        <div class="row">
+                            <!-- Property Owner -->
+                            <div class="col-md-6 mb-3">
+                                <h5>Property Owner</h5>
+                                <div class="text-muted">Original ({{ property_doc.property_owner_language }}):</div>
+                                <p>{{ property_doc.property_owner_original|default:"-" }}</p>
+                                <div class="text-muted">English Translation:</div>
+                                <p>{{ property_doc.property_owner_translated|default:"-" }}</p>
+                            </div>
+
+                            <!-- Property Area -->
+                            <div class="col-md-6 mb-3">
+                                <h5>Property Area</h5>
+                                <p>{{ property_doc.property_area|default:"-" }}</p>
+                            </div>
+
+                            <!-- Property Location -->
+                            <div class="col-md-6 mb-3">
+                                <h5>Property Location</h5>
+                                <div class="text-muted">Original ({{ property_doc.property_location_language }}):</div>
+                                <p>{{ property_doc.property_location_original|default:"-" }}</p>
+                                <div class="text-muted">English Translation:</div>
+                                <p>{{ property_doc.property_location_translated|default:"-" }}</p>
+                            </div>
+
+                            <!-- Property Coordinates -->
+                            <div class="col-md-6 mb-3">
+                                <h5>Property Coordinates</h5>
+                                <p>{{ property_doc.property_coordinates|default:"-" }}</p>
+                            </div>
+
+                            <!-- Property Value -->
+                            <div class="col-md-6 mb-3">
+                                <h5>Property Value</h5>
+                                <p>{{ property_doc.property_value|default:"-" }}</p>
+                            </div>
+
+                            <!-- Loan Limit -->
+                            <div class="col-md-6 mb-3">
+                                <h5>Loan Limit</h5>
+                                <p>{{ property_doc.loan_limit|default:"-" }}</p>
+                            </div>
+
+                            <!-- Risk Summary -->
+                            <div class="col-12 mb-3">
+                                <h5>Risk Summary</h5>
+                                <div class="text-muted">Original ({{ property_doc.risk_summary_language }}):</div>
+                                <p>{{ property_doc.risk_summary_original|default:"-" }}</p>
+                                <div class="text-muted">English Translation:</div>
+                                <p>{{ property_doc.risk_summary_translated|default:"-" }}</p>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>

@@ -25,6 +25,42 @@ def image_to_base64(image):
     print(f"Base64 string length: {len(img_str)}")
     return img_str
 
+def detect_and_translate(text, model):
+    """Detect language and translate text to English using Gemini"""
+    try:
+        if not text or text.strip() == "":
+            return {"original": "", "language": "", "translated": ""}
+
+        # First, detect the language
+        prompt = f"""Analyze the following text and determine its language. If it's in an Indian language, specify which one. Return ONLY the language code (e.g., 'hi' for Hindi, 'ta' for Tamil, etc.) or 'en' for English. Text to analyze:
+
+{text}"""
+        
+        response = model.generate_content(prompt)
+        language = response.text.strip().lower()
+        
+        result = {
+            "original": text,
+            "language": language,
+            "translated": text  # Default to original if English
+        }
+        
+        # Translate if not English and language was detected
+        if language and language != 'en':
+            translate_prompt = f"""Translate the following text from {language} to English. Provide ONLY the English translation, no additional text or explanations:
+
+{text}"""
+            translation = model.generate_content(translate_prompt)
+            translated_text = translation.text.strip()
+            if translated_text:  # Only update if we got a translation
+                result["translated"] = translated_text
+            print(f"Translation result for '{text}': {result}")  # Add debug logging
+            
+        return result
+    except Exception as e:
+        logger.error(f"Translation error: {str(e)}")
+        return {"original": text, "language": "unknown", "translated": text}
+
 def extract_property_data_from_image(image, model):
     """Extract property data from a single image using Gemini vision model"""
     try:
@@ -37,7 +73,7 @@ def extract_property_data_from_image(image, model):
             print("Converting image to base64")
             image_data = image_to_base64(image)
 
-        prompt = """Please extract the following information from this property document image. Return the data in valid JSON format with these fields:
+        prompt = """Please extract the following information from this document image, keeping any text in its original language. Return the data in valid JSON format with these fields:
         {
             "property_owner": "",
             "property_area": "",
@@ -53,8 +89,11 @@ def extract_property_data_from_image(image, model):
         2. Remove any currency symbols and special characters from numbers
         3. If a field is not found in the image, leave it empty
         4. For property_area, include the unit (e.g., "1200 sq ft")
-        5. For property_coordinates, use the format "latitude° N/S, longitude° E/W"
-        6. For risk_summary, provide a brief assessment of the property's risk factors"""
+        5. For property_value, property_limit, include the currency symbol (e.g., "₹")  
+        6. For property_coordinates, use the format "latitude° N/S, longitude° E/W"
+        7. For risk_summary, provide a brief assessment of the property's risk factors
+        8. Keep all text in its original language - do not translate
+        """
 
         print("\n=== Sending Request to Gemini ===")
         print(f"Prompt length: {len(prompt)}")
@@ -80,22 +119,22 @@ def extract_property_data_from_image(image, model):
         print("JSON parsed successfully")
         print(f"Extracted data keys: {list(extracted_data.keys())}")
 
-        # Ensure all required fields are present
-        required_fields = [
-            "property_owner", "property_area", "property_location", "property_coordinates",
-            "property_value", "loan_limit", "risk_summary"
-        ]
-        
-        # Initialize missing fields with empty values
-        for field in required_fields:
-            if field not in extracted_data:
-                print(f"Adding missing field: {field}")
-                extracted_data[field] = ""
+        # Process translations for text fields
+        translated_data = {}
+        for field in ['property_owner', 'property_area', 'property_location', 'property_coordinates', 
+                     'property_value', 'loan_limit', 'risk_summary']:
+            value = extracted_data.get(field, '')
+            if value and isinstance(value, str):
+                translated_data[field] = detect_and_translate(value, model)
             else:
-                print(f"Field {field} present with value type: {type(extracted_data[field])}")
+                translated_data[field] = {
+                    'original': value if value is not None else '',
+                    'language': 'none',
+                    'translated': value if value is not None else ''
+                }
 
-        print("\n=== Extraction Complete ===")
-        return extracted_data
+        print("\n=== Translation Complete ===")
+        return translated_data
 
     except Exception as e:
         print(f"\n!!! ERROR in extract_property_data_from_image: {str(e)}")
@@ -116,7 +155,7 @@ def extract_loan_data_from_image(image, model):
             print("Converting image to base64")
             image_data = image_to_base64(image)
 
-        prompt = """Please extract the following information from this document image. Return the data in valid JSON format with these fields:
+        prompt = """Please extract the following information from this document image, keeping any text in its original language. Return the data in valid JSON format with these fields:
         {
             "borrower_name": "",
             "date_of_birth": "",
@@ -140,7 +179,9 @@ def extract_loan_data_from_image(image, model):
         2. Use YYYY-MM-DD format for dates
         3. Remove any currency symbols and special characters from numbers
         4. If a field is not found in the image, leave it empty
-        5. For witness_details and emi_history, use arrays even if empty"""
+        5. For loan amount, include the currency symbol (e.g., "₹")
+        6. For witness_details and emi_history, use arrays even if empty
+        7. Keep all text in its original language - do not translate"""
 
         print("\n=== Sending Request to Gemini ===")
         print(f"Prompt length: {len(prompt)}")
@@ -166,7 +207,7 @@ def extract_loan_data_from_image(image, model):
         print("JSON parsed successfully")
         print(f"Extracted data keys: {list(extracted_data.keys())}")
 
-        # Ensure all required fields are present
+        # Ensure all required fields are present and process translations
         required_fields = [
             "borrower_name", "date_of_birth", "sex", "father_name", "spouse_name",
             "aadhar_number", "pan_number", "passport_number", "driving_license",
@@ -174,16 +215,34 @@ def extract_loan_data_from_image(image, model):
             "emi_history", "credibility_summary"
         ]
         
-        # Initialize missing fields with empty values
+        # Process translations for text fields
+        translated_data = {}
         for field in required_fields:
             if field not in extracted_data:
                 print(f"Adding missing field: {field}")
                 extracted_data[field] = "" if field not in ["witness_details", "emi_history"] else []
+                translated_data[field] = {"original": "", "language": "", "translated": ""}
             else:
-                print(f"Field {field} present with value type: {type(extracted_data[field])}")
+                value = extracted_data[field]
+                if field in ["witness_details", "emi_history"]:
+                    # Handle arrays
+                    translated_array = []
+                    for item in value:
+                        if isinstance(item, str) and item.strip():  # Only translate non-empty strings
+                            translated_array.append(detect_and_translate(item, model))
+                        else:
+                            translated_array.append(item)
+                    translated_data[field] = translated_array
+                elif isinstance(value, str) and value.strip():  # Only translate non-empty strings
+                    # Handle string fields
+                    translated_data[field] = detect_and_translate(value, model)
+                    print(f"Translated {field}: {translated_data[field]}")  # Add debug logging
+                else:
+                    # Handle non-string fields (like numbers) or empty strings
+                    translated_data[field] = {"original": value, "language": "none", "translated": value}
 
-        print("\n=== Extraction Complete ===")
-        return extracted_data
+        print("\n=== Translation Complete ===")
+        return translated_data
 
     except Exception as e:
         print(f"\n!!! ERROR in extract_loan_data_from_image: {str(e)}")
@@ -261,11 +320,20 @@ def extract_data_from_document(file_path, document_type='loan'):
         for data in all_extracted_data[1:]:
             # Update empty fields from subsequent pages
             for key, value in data.items():
-                if not merged_data[key] and value:
-                    merged_data[key] = value
-                # Append arrays for loan documents
-                if isinstance(value, list):
-                    merged_data[key].extend(value)
+                try:
+                    # Handle dictionary values (like translated fields)
+                    if isinstance(value, dict) and isinstance(merged_data.get(key), dict):
+                        if not merged_data[key].get("original") and value.get("original"):
+                            merged_data[key] = value
+                    # Handle list values (like witness_details and emi_history)
+                    elif isinstance(value, list) and isinstance(merged_data.get(key), list):
+                        merged_data[key].extend(value)
+                    # Handle simple values (like dates and numbers)
+                    elif not merged_data.get(key) and value:
+                        merged_data[key] = value
+                except Exception as e:
+                    print(f"Error merging field {key}: {str(e)}")
+                    continue
         
         print("\n=== Processing Complete ===")
         print(f"Final data keys: {list(merged_data.keys())}")

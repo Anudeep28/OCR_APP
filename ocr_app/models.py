@@ -81,7 +81,9 @@ class PropertyDocument(models.Model):
     property_owner_language = models.CharField(max_length=10, default='en')
     property_owner_translated = models.CharField(max_length=200, blank=True)
     
-    property_area = models.CharField(max_length=100, blank=True)  
+    property_area_original = models.CharField(max_length=100, blank=True)
+    property_area_language = models.CharField(max_length=10, default='en')
+    property_area_translated = models.CharField(max_length=100, blank=True)
     
     property_location_original = models.TextField(blank=True)  
     property_location_language = models.CharField(max_length=10, default='en')

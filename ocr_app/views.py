@@ -1,6 +1,6 @@
 # ocr_app/views.py
 from django.views import View
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 from django.contrib import messages
@@ -12,6 +12,9 @@ from django.urls import reverse_lazy
 from .forms import CustomUserCreationForm
 import logging
 from datetime import datetime
+import json
+import csv
+from django.http import HttpResponse, JsonResponse
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +209,9 @@ class DocumentProcessView(View):
                     property_owner_translated=property_owner.get('translated', ''),
                     
                     # Property area
-                    property_area=property_data.get('property_area', {}).get('original', ''),
+                    property_area_original=property_data.get('property_area', {}).get('original', ''),
+                    property_area_language=property_data.get('property_area', {}).get('language', 'en'),
+                    property_area_translated=property_data.get('property_area', {}).get('translated', ''),
                     
                     # Property location
                     property_location_original=property_location.get('original', ''),
@@ -260,3 +265,202 @@ class SignUpView(CreateView):
         response = super().form_valid(form)
         messages.success(self.request, 'Account created successfully! Please log in.')
         return response
+
+
+@app_access_required
+def download_json(request, document_type, document_id):
+    """Download document data as JSON file"""
+    try:
+        if document_type == 'loan':
+            document = get_object_or_404(LoanDocument, id=document_id, user=request.user)
+            
+            # Create a dictionary with all the loan document data
+            data = {
+                'personal_information': {
+                    'borrower_name': {
+                        'original': document.borrower_name_original,
+                        'language': document.borrower_name_language,
+                        'translated': document.borrower_name_translated
+                    },
+                    'date_of_birth': str(document.date_of_birth) if document.date_of_birth else '',
+                    'father_name': {
+                        'original': document.father_name_original,
+                        'language': document.father_name_language,
+                        'translated': document.father_name_translated
+                    },
+                    'spouse_name': {
+                        'original': document.spouse_name_original,
+                        'language': document.spouse_name_language,
+                        'translated': document.spouse_name_translated
+                    },
+                    'sex': {
+                        'original': document.sex_original,
+                        'language': document.sex_language,
+                        'translated': document.sex_translated
+                    }
+                },
+                'identity_information': {
+                    'aadhar_number': document.aadhar_number,
+                    'pan_number': document.pan_number,
+                    'passport_number': document.passport_number,
+                    'driving_license': document.driving_license
+                },
+                'loan_information': {
+                    'loan_amount': document.loan_amount,
+                    'loan_purpose': {
+                        'original': document.loan_purpose_original,
+                        'language': document.loan_purpose_language,
+                        'translated': document.loan_purpose_translated
+                    },
+                    'loan_term_months': document.loan_term_months,
+                    'monthly_income': document.monthly_income,
+                    'credit_score': document.credit_score,
+                    'loan_sanction_date': str(document.loan_sanction_date) if document.loan_sanction_date else '',
+                    'loan_balance': document.loan_balance
+                },
+                'additional_information': {
+                    'witness_details': document.witness_details,
+                    'emi_history': document.emi_history,
+                    'credibility_summary': {
+                        'original': document.credibility_summary_original,
+                        'language': document.credibility_summary_language,
+                        'translated': document.credibility_summary_translated
+                    }
+                }
+            }
+            filename = f"loan_document_{document_id}.json"
+            
+        elif document_type == 'property':
+            document = get_object_or_404(PropertyDocument, id=document_id, user=request.user)
+            
+            # Create a dictionary with all the property document data
+            data = {
+                'property_information': {
+                    'property_owner': {
+                        'original': document.property_owner_original,
+                        'language': document.property_owner_language,
+                        'translated': document.property_owner_translated
+                    },
+                    'property_area': {
+                        'original': document.property_area_original,
+                        'language': document.property_area_language,
+                        'translated': document.property_area_translated
+                    },
+                    'property_location': {
+                        'original': document.property_location_original,
+                        'language': document.property_location_language,
+                        'translated': document.property_location_translated
+                    },
+                    'property_coordinates': document.property_coordinates,
+                    'property_value': document.property_value,
+                    'loan_limit': document.loan_limit
+                },
+                'risk_assessment': {
+                    'risk_summary': {
+                        'original': document.risk_summary_original,
+                        'language': document.risk_summary_language,
+                        'translated': document.risk_summary_translated
+                    }
+                }
+            }
+            filename = f"property_document_{document_id}.json"
+        else:
+            return HttpResponse("Invalid document type", status=400)
+        
+        # Create the JSON response
+        response = HttpResponse(json.dumps(data, indent=4), content_type='application/json')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error downloading JSON: {str(e)}")
+        messages.error(request, f"Error downloading document: {str(e)}")
+        return redirect('ocr_app:document-upload')
+
+
+@app_access_required
+def download_csv(request, document_type, document_id):
+    """Download document data as CSV file"""
+    try:
+        if document_type == 'loan':
+            document = get_object_or_404(LoanDocument, id=document_id, user=request.user)
+            filename = f"loan_document_{document_id}.csv"
+            
+            # Create CSV response
+            response = HttpResponse(content_type='text/csv')
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            writer = csv.writer(response)
+            # Write headers and rows for loan document
+            writer.writerow(['Field', 'Original Value', 'Language', 'Translated Value'])
+            
+            # Personal Information
+            writer.writerow(['Borrower Name', document.borrower_name_original, document.borrower_name_language, document.borrower_name_translated])
+            writer.writerow(['Date of Birth', document.date_of_birth if document.date_of_birth else '', '', ''])
+            writer.writerow(['Father Name', document.father_name_original, document.father_name_language, document.father_name_translated])
+            writer.writerow(['Spouse Name', document.spouse_name_original, document.spouse_name_language, document.spouse_name_translated])
+            writer.writerow(['Sex', document.sex_original, document.sex_language, document.sex_translated])
+            
+            # Identity Information
+            writer.writerow(['Aadhar Number', document.aadhar_number, '', ''])
+            writer.writerow(['PAN Number', document.pan_number, '', ''])
+            writer.writerow(['Passport Number', document.passport_number, '', ''])
+            writer.writerow(['Driving License', document.driving_license, '', ''])
+            
+            # Loan Information
+            writer.writerow(['Loan Amount', document.loan_amount, '', ''])
+            writer.writerow(['Loan Purpose', document.loan_purpose_original, document.loan_purpose_language, document.loan_purpose_translated])
+            writer.writerow(['Loan Term (Months)', document.loan_term_months, '', ''])
+            writer.writerow(['Monthly Income', document.monthly_income, '', ''])
+            writer.writerow(['Credit Score', document.credit_score, '', ''])
+            writer.writerow(['Loan Sanction Date', document.loan_sanction_date if document.loan_sanction_date else '', '', ''])
+            writer.writerow(['Loan Balance', document.loan_balance, '', ''])
+            
+            # Additional Information
+            writer.writerow(['Credibility Summary', document.credibility_summary_original, document.credibility_summary_language, document.credibility_summary_translated])
+            
+            # Handle witness details and EMI history separately if needed
+            if document.witness_details:
+                writer.writerow([])
+                writer.writerow(['Witness Details'])
+                for i, witness in enumerate(document.witness_details):
+                    writer.writerow([f'Witness {i+1}', str(witness), '', ''])
+            
+            if document.emi_history:
+                writer.writerow([])
+                writer.writerow(['EMI History'])
+                for i, emi in enumerate(document.emi_history):
+                    writer.writerow([f'EMI {i+1}', str(emi), '', ''])
+            
+        elif document_type == 'property':
+            document = get_object_or_404(PropertyDocument, id=document_id, user=request.user)
+            filename = f"property_document_{document_id}.csv"
+            
+            # Create CSV response
+            response = HttpResponse(content_type='text/csv')
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            writer = csv.writer(response)
+            # Write headers and rows for property document
+            writer.writerow(['Field', 'Original Value', 'Language', 'Translated Value'])
+            
+            # Property Information
+            writer.writerow(['Property Owner', document.property_owner_original, document.property_owner_language, document.property_owner_translated])
+            writer.writerow(['Property Area', document.property_area_original, document.property_area_language, document.property_area_translated])
+            writer.writerow(['Property Location', document.property_location_original, document.property_location_language, document.property_location_translated])
+            writer.writerow(['Property Coordinates', document.property_coordinates, '', ''])
+            writer.writerow(['Property Value', document.property_value, '', ''])
+            writer.writerow(['Loan Limit', document.loan_limit, '', ''])
+            
+            # Risk Assessment
+            writer.writerow(['Risk Summary', document.risk_summary_original, document.risk_summary_language, document.risk_summary_translated])
+            
+        else:
+            return HttpResponse("Invalid document type", status=400)
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error downloading CSV: {str(e)}")
+        messages.error(request, f"Error downloading document: {str(e)}")
+        return redirect('ocr_app:document-upload')

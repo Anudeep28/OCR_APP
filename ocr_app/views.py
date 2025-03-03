@@ -15,6 +15,7 @@ from datetime import datetime
 import json
 import csv
 from django.http import HttpResponse, JsonResponse
+from django.contrib.auth import logout
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +266,13 @@ class SignUpView(CreateView):
         response = super().form_valid(form)
         messages.success(self.request, 'Account created successfully! Please log in.')
         return response
+
+
+# Custom logout view
+def logout_view(request):
+    logout(request)
+    messages.success(request, 'You have been successfully logged out.')
+    return redirect('ocr_app:home')
 
 
 @app_access_required

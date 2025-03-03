@@ -99,3 +99,28 @@ class PropertyDocument(models.Model):
     
     def __str__(self):
         return f"Property Document - {self.property_owner_original}"
+
+class ExtractionPrompt(models.Model):
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    document_type = models.CharField(max_length=20, choices=[('loan', 'Loan Document'), ('property', 'Property Document')])
+    name = models.CharField(max_length=100)
+    prompt_text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_default = models.BooleanField(default=False)
+    
+    class Meta:
+        unique_together = ['user', 'name', 'document_type']
+        
+    def __str__(self):
+        return f"{self.name} ({self.document_type})"
+
+class CustomExtraction(models.Model):
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    document_type = models.CharField(max_length=20)
+    extracted_data = models.JSONField()
+    custom_prompt = models.TextField()
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"Custom Extraction - {self.id}"

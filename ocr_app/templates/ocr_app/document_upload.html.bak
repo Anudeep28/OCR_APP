@@ -56,34 +56,13 @@
                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="show_template_btn" onclick="showPromptTemplate()">
                                     Show Default Template
                                 </button>
-                                <div class="mt-3" id="saved_prompts_container" style="display: none;">
-                                    <label for="saved_prompts_dropdown" class="form-label fw-bold">Saved Prompts:</label>
-                                    <select class="form-select mb-2" id="saved_prompts_dropdown">
-                                        <option value="">-- Select a saved prompt --</option>
-                                    </select>
-                                    <div id="saved_prompt_status" class="form-text"></div>
-                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="load_saved_prompt_btn" onclick="loadSavedPrompt()" style="display: none;">
+                                    Load Saved Prompt
+                                </button>
                             </div>
                             <textarea class="form-control" id="custom_prompt" name="custom_prompt" rows="10" placeholder="Enter your custom extraction prompt here..."></textarea>
                             <div class="form-text">
-                                <strong>Guidelines for custom prompts:</strong>
-                                <ul class="mt-1">
-                                    <li>Always include instructions to return data in valid JSON format</li>
-                                    <li>Specify field names clearly (e.g., "date", "bank_name")</li>
-                                    <li>Emphasize that property names and string values must use <strong>double quotes</strong>, not single quotes</li>
-                                    <li>Example format: 
-                                        <pre class="mt-1 p-2 bg-light">Please extract the following information from this document image and return it as JSON:
-{
-  "date": "",
-  "bank_name": "",
-  "property_size": ""
-}
-
-Important: Return ONLY the JSON object with the extracted data. 
-Use double quotes for both property names and string values.
-Do not include any additional text or explanations.</pre>
-                                    </li>
-                                </ul>
+                                Specify the fields to extract in JSON format. Make sure to include instructions for the AI to return valid JSON.
                             </div>
                         </div>
 
@@ -321,30 +300,24 @@ Do not include any additional text or explanations.</pre>
                                     {% for key, value in custom_data.items %}
                                     <div class="accordion-item">
                                         <h2 class="accordion-header" id="heading{{ forloop.counter }}">
-                                            <button class="accordion-button collapsed" 
-                                                    type="button" data-bs-toggle="collapse" 
-                                                    data-bs-target="#collapse{{ forloop.counter }}" 
-                                                    aria-expanded="false" 
+                                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                                                    data-bs-target="#collapse{{ forloop.counter }}" aria-expanded="false" 
                                                     aria-controls="collapse{{ forloop.counter }}">
-                                                {{ key|title }}
+                                                {{ key }}
                                             </button>
                                         </h2>
-                                        <div id="collapse{{ forloop.counter }}" 
-                                             class="accordion-collapse collapse" 
-                                             aria-labelledby="heading{{ forloop.counter }}" 
-                                             data-bs-parent="#customDataAccordion">
+                                        <div id="collapse{{ forloop.counter }}" class="accordion-collapse collapse" 
+                                             aria-labelledby="heading{{ forloop.counter }}" data-bs-parent="#customDataAccordion">
                                             <div class="accordion-body">
                                                 {% if value.original %}
                                                     <div class="mb-2">
-                                                        <strong>Original {% if value.language %}({{ value.language }}){% endif %}:</strong>
+                                                        <strong>Original ({{ value.language }}):</strong>
                                                         <p>{{ value.original }}</p>
                                                     </div>
-                                                    {% if value.translated and value.translated != value.original %}
                                                     <div>
                                                         <strong>Translated:</strong>
                                                         <p>{{ value.translated }}</p>
                                                     </div>
-                                                    {% endif %}
                                                 {% else %}
                                                     <p>{{ value }}</p>
                                                 {% endif %}
@@ -359,7 +332,55 @@ Do not include any additional text or explanations.</pre>
                     </div>
                 </div>
             </div>
-            {% endif %} <!-- Close if processed_data -->
+            {% if custom_extraction %}
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5>Custom Extraction Results</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>Field</th>
+                                    <th>Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for key, value in custom_extraction.extracted_data.items %}
+                                    <tr>
+                                        <td>{{ key }}</td>
+                                        <td>
+                                            {% if value.original is defined %}
+                                                <strong>Original:</strong> {{ value.original }}<br>
+                                                {% if value.language %}<strong>Language:</strong> {{ value.language }}<br>{% endif %}
+                                                {% if value.translated %}<strong>Translated:</strong> {{ value.translated }}{% endif %}
+                                            {% else %}
+                                                {% if value|is_list %}
+                                                    <ul>
+                                                        {% for item in value %}
+                                                            <li>{{ item }}</li>
+                                                        {% endfor %}
+                                                    </ul>
+                                                {% elif value|is_dict %}
+                                                    <pre>{{ value|pprint }}</pre>
+                                                {% else %}
+                                                    {{ value }}
+                                                {% endif %}
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-3">
+                        <a href="{% url 'ocr_app:download-json' 'custom' custom_extraction.id %}" class="btn btn-primary">Download JSON</a>
+                        <a href="{% url 'ocr_app:download-csv' 'custom' custom_extraction.id %}" class="btn btn-success">Download CSV</a>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>
@@ -386,14 +407,6 @@ function toggleCustomPrompt() {
     const useCustomPrompt = document.getElementById('use_custom_prompt').checked;
     document.getElementById('custom_prompt_container').style.display = useCustomPrompt ? 'block' : 'none';
     document.getElementById('save_prompt_container').style.display = useCustomPrompt ? 'block' : 'none';
-    
-    // Only show saved prompts if custom prompt is enabled and a document type is selected
-    const docType = document.getElementById('document_type').value;
-    if (useCustomPrompt && docType) {
-        loadSavedPrompts(docType);
-    } else {
-        document.getElementById('saved_prompts_container').style.display = 'none';
-    }
 }
 
 // Toggle save prompt name field
@@ -404,81 +417,12 @@ document.getElementById('save_prompt').addEventListener('change', function() {
 // Show default prompt template based on document type
 function toggleCustomPromptTemplate() {
     const docType = document.getElementById('document_type').value;
-    const useCustomPrompt = document.getElementById('use_custom_prompt').checked;
-    
     if (docType) {
         document.getElementById('show_template_btn').style.display = 'inline-block';
-        // Load saved prompts for this document type if custom prompt is enabled
-        if (useCustomPrompt) {
-            loadSavedPrompts(docType);
-        }
     } else {
         document.getElementById('show_template_btn').style.display = 'none';
-        document.getElementById('saved_prompts_container').style.display = 'none';
     }
 }
-
-// Load saved prompts for the selected document type
-function loadSavedPrompts(documentType) {
-    console.log("Loading saved prompts for document type:", documentType);
-    const dropdown = document.getElementById('saved_prompts_dropdown');
-    const container = document.getElementById('saved_prompts_container');
-    
-    // Show loading indicator
-    dropdown.options[0].text = "-- Loading prompts... --";
-    container.style.display = 'block';
-    
-    fetch(`{% url 'ocr_app:get-saved-prompts' %}?document_type=${documentType}`)
-        .then(response => {
-            console.log("Response status:", response.status);
-            return response.json();
-        })
-        .then(data => {
-            console.log("Received data:", data);
-            // Clear existing options except the first one
-            while (dropdown.options.length > 1) {
-                dropdown.remove(1);
-            }
-            
-            // Check if we have any prompts
-            if (data.prompts && data.prompts.length > 0) {
-                console.log(`Found ${data.prompts.length} prompts`);
-                // Add options for each prompt
-                data.prompts.forEach(prompt => {
-                    const option = document.createElement('option');
-                    option.value = prompt.id;
-                    option.textContent = prompt.name;
-                    option.dataset.promptText = prompt.prompt_text;
-                    dropdown.appendChild(option);
-                });
-                
-                // Update the first option text
-                dropdown.options[0].text = "-- Select a saved prompt --";
-            } else {
-                console.log("No prompts found");
-                // Update the first option to indicate no prompts
-                dropdown.options[0].text = "-- No saved prompts available --";
-            }
-        })
-        .catch(error => {
-            console.error('Error loading saved prompts:', error);
-            dropdown.options[0].text = "-- Error loading prompts --";
-        });
-}
-
-// Handle saved prompt selection
-document.getElementById('saved_prompts_dropdown').addEventListener('change', function() {
-    const selectedOption = this.options[this.selectedIndex];
-    const statusElement = document.getElementById('saved_prompt_status');
-    
-    if (selectedOption.value) {
-        const promptText = selectedOption.dataset.promptText;
-        document.getElementById('custom_prompt').value = promptText;
-        statusElement.innerHTML = `<span class="text-success">Loaded prompt: "${selectedOption.textContent}"</span>`;
-    } else {
-        statusElement.innerHTML = '';
-    }
-});
 
 // Show default prompt template
 function showPromptTemplate() {
@@ -537,13 +481,10 @@ Important:
     }
 }
 
-// Document ready event handler
-document.addEventListener('DOMContentLoaded', function() {
-    // Initialize the document type change handler
-    document.getElementById('document_type').addEventListener('change', toggleCustomPromptTemplate);
-    
-    // Initialize the custom prompt checkbox handler
-    document.getElementById('use_custom_prompt').addEventListener('change', toggleCustomPrompt);
-});
+// Function to load saved prompts (will be implemented with AJAX)
+function loadSavedPrompt() {
+    // This would be implemented with AJAX to fetch saved prompts
+    alert('This feature will load your saved prompts. Implementation pending.');
+}
 </script>
 {% endblock %}

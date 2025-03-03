@@ -6,7 +6,7 @@ from django.utils.decorators import method_decorator
 from django.contrib import messages
 from django.core.files.storage import FileSystemStorage
 from .services.rag_utils import extract_data_from_document
-from .models import CustomUser, LoanDocument, PropertyDocument
+from .models import CustomUser, LoanDocument, PropertyDocument, ExtractionPrompt, CustomExtraction
 from django.views.generic.edit import CreateView
 from django.urls import reverse_lazy
 from .forms import CustomUserCreationForm
@@ -64,16 +64,111 @@ class DocumentProcessView(View):
         file_path = fs.path(filename)
         print(f"File saved to: {file_path}")
         
+        # Check if custom prompt is being used
+        use_custom_prompt = request.POST.get('use_custom_prompt') == 'on'
+        custom_prompt = request.POST.get('custom_prompt', '') if use_custom_prompt else None
+        save_prompt = request.POST.get('save_prompt') == 'on'
+        prompt_name = request.POST.get('prompt_name', '')
+        
+        # Save the custom prompt if requested
+        if use_custom_prompt and save_prompt and prompt_name and custom_prompt:
+            try:
+                # Check if a prompt with this name already exists
+                existing_prompt = ExtractionPrompt.objects.filter(
+                    user=request.user,
+                    name=prompt_name,
+                    document_type=document_type
+                ).first()
+                
+                if existing_prompt:
+                    # Update existing prompt
+                    existing_prompt.prompt_text = custom_prompt
+                    existing_prompt.save()
+                    messages.success(request, f'Updated existing prompt: {prompt_name}')
+                else:
+                    # Create new prompt
+                    ExtractionPrompt.objects.create(
+                        user=request.user,
+                        document_type=document_type,
+                        name=prompt_name,
+                        prompt_text=custom_prompt
+                    )
+                    messages.success(request, f'Saved custom prompt: {prompt_name}')
+            except Exception as e:
+                messages.error(request, f'Error saving prompt: {str(e)}')
+        
         try:
-            # Extract data from document
+            # Extract data from document with optional custom prompt
             print("Calling extract_data_from_document...")
-            result = extract_data_from_document(file_path, document_type)
+            result = extract_data_from_document(file_path, document_type, custom_prompt)
             print(f"Extraction result: {result}")
             
             if not result['success']:
                 messages.error(request, f"Error processing document: {result.get('error', 'Unknown error')}")
                 return render(request, self.template_name)
             
+            # Handle custom extraction if using a custom prompt
+            if use_custom_prompt:
+                # Get the structured data
+                extracted_data = result.get('structured_data', {})
+                
+                # Log the extracted data for debugging
+                print(f"Custom extraction data: {extracted_data}")
+                
+                # Check if the data is empty or only contains empty values
+                is_empty = not extracted_data or all(
+                    not value for value in extracted_data.values() 
+                    if not isinstance(value, (dict, list)) or 
+                    (isinstance(value, dict) and 'original' in value and not value.get('original'))
+                )
+                
+                if is_empty:
+                    messages.warning(request, "The extraction returned empty or minimal results. Try adjusting your custom prompt to be more specific about the JSON format.")
+                
+                # We'll keep the original keys but ensure all data is properly structured
+                processed_data = {}
+                
+                # Process each field to ensure it has the right structure
+                for key, value in extracted_data.items():
+                    # If value is already a dict with 'original', 'language', 'translated' structure, keep it as is
+                    if isinstance(value, dict) and 'original' in value and 'language' in value and 'translated' in value:
+                        processed_data[key] = value
+                    # If value is a string, convert it to the structured format
+                    elif isinstance(value, str):
+                        # Only process non-empty strings
+                        if value.strip():
+                            processed_data[key] = {
+                                'original': value,
+                                'language': 'auto',  # Will be determined during translation
+                                'translated': value  # Default to original, will be translated if needed
+                            }
+                        else:
+                            processed_data[key] = {
+                                'original': '',
+                                'language': '',
+                                'translated': ''
+                            }
+                    # For other types (like lists or empty values), keep as is
+                    else:
+                        processed_data[key] = value
+                
+                # Save custom extraction with processed data
+                custom_extraction = CustomExtraction.objects.create(
+                    user=request.user,
+                    document_type=document_type,
+                    extracted_data=processed_data,
+                    custom_prompt=custom_prompt
+                )
+                
+                # Render the template with custom data
+                return render(request, self.template_name, {
+                    'custom_extraction': custom_extraction,
+                    'document_type': 'custom',
+                    'processed_data': True,
+                    'custom_data': processed_data
+                })
+            
+            # Standard processing for loan documents
             if document_type == 'loan':
                 # Handle loan document with translations
                 loan_data = result.get('structured_data', {})
@@ -282,107 +377,107 @@ def download_json(request, document_type, document_id):
         if document_type == 'loan':
             document = get_object_or_404(LoanDocument, id=document_id, user=request.user)
             
-            # Create a dictionary with all the loan document data
+            # Create a dictionary with all the document data
             data = {
-                'personal_information': {
-                    'borrower_name': {
-                        'original': document.borrower_name_original,
-                        'language': document.borrower_name_language,
-                        'translated': document.borrower_name_translated
-                    },
-                    'date_of_birth': str(document.date_of_birth) if document.date_of_birth else '',
-                    'father_name': {
-                        'original': document.father_name_original,
-                        'language': document.father_name_language,
-                        'translated': document.father_name_translated
-                    },
-                    'spouse_name': {
-                        'original': document.spouse_name_original,
-                        'language': document.spouse_name_language,
-                        'translated': document.spouse_name_translated
-                    },
-                    'sex': {
-                        'original': document.sex_original,
-                        'language': document.sex_language,
-                        'translated': document.sex_translated
-                    }
+                'borrower_name': {
+                    'original': document.borrower_name_original,
+                    'language': document.borrower_name_language,
+                    'translated': document.borrower_name_translated
                 },
-                'identity_information': {
-                    'aadhar_number': document.aadhar_number,
-                    'pan_number': document.pan_number,
-                    'passport_number': document.passport_number,
-                    'driving_license': document.driving_license
+                'date_of_birth': document.date_of_birth.strftime('%Y-%m-%d') if document.date_of_birth else '',
+                'father_name': {
+                    'original': document.father_name_original,
+                    'language': document.father_name_language,
+                    'translated': document.father_name_translated
                 },
-                'loan_information': {
-                    'loan_amount': document.loan_amount,
-                    'loan_purpose': {
-                        'original': document.loan_purpose_original,
-                        'language': document.loan_purpose_language,
-                        'translated': document.loan_purpose_translated
-                    },
-                    'loan_term_months': document.loan_term_months,
-                    'monthly_income': document.monthly_income,
-                    'credit_score': document.credit_score,
-                    'loan_sanction_date': str(document.loan_sanction_date) if document.loan_sanction_date else '',
-                    'loan_balance': document.loan_balance
+                'spouse_name': {
+                    'original': document.spouse_name_original,
+                    'language': document.spouse_name_language,
+                    'translated': document.spouse_name_translated
                 },
-                'additional_information': {
-                    'witness_details': document.witness_details,
-                    'emi_history': document.emi_history,
-                    'credibility_summary': {
-                        'original': document.credibility_summary_original,
-                        'language': document.credibility_summary_language,
-                        'translated': document.credibility_summary_translated
-                    }
+                'sex': {
+                    'original': document.sex_original,
+                    'language': document.sex_language,
+                    'translated': document.sex_translated
+                },
+                'aadhar_number': document.aadhar_number,
+                'pan_number': document.pan_number,
+                'passport_number': document.passport_number,
+                'driving_license': document.driving_license,
+                'loan_amount': document.loan_amount,
+                'loan_purpose': {
+                    'original': document.loan_purpose_original,
+                    'language': document.loan_purpose_language,
+                    'translated': document.loan_purpose_translated
+                },
+                'loan_term_months': document.loan_term_months,
+                'monthly_income': document.monthly_income,
+                'credit_score': document.credit_score,
+                'loan_sanction_date': document.loan_sanction_date.strftime('%Y-%m-%d') if document.loan_sanction_date else '',
+                'loan_balance': document.loan_balance,
+                'witness_details': document.witness_details,
+                'emi_history': document.emi_history,
+                'credibility_summary': {
+                    'original': document.credibility_summary_original,
+                    'language': document.credibility_summary_language,
+                    'translated': document.credibility_summary_translated
                 }
             }
+            
             filename = f"loan_document_{document_id}.json"
             
         elif document_type == 'property':
             document = get_object_or_404(PropertyDocument, id=document_id, user=request.user)
             
-            # Create a dictionary with all the property document data
+            # Create a dictionary with all the document data
             data = {
-                'property_information': {
-                    'property_owner': {
-                        'original': document.property_owner_original,
-                        'language': document.property_owner_language,
-                        'translated': document.property_owner_translated
-                    },
-                    'property_area': {
-                        'original': document.property_area_original,
-                        'language': document.property_area_language,
-                        'translated': document.property_area_translated
-                    },
-                    'property_location': {
-                        'original': document.property_location_original,
-                        'language': document.property_location_language,
-                        'translated': document.property_location_translated
-                    },
-                    'property_coordinates': document.property_coordinates,
-                    'property_value': document.property_value,
-                    'loan_limit': document.loan_limit
+                'property_owner': {
+                    'original': document.property_owner_original,
+                    'language': document.property_owner_language,
+                    'translated': document.property_owner_translated
                 },
-                'risk_assessment': {
-                    'risk_summary': {
-                        'original': document.risk_summary_original,
-                        'language': document.risk_summary_language,
-                        'translated': document.risk_summary_translated
-                    }
+                'property_area': {
+                    'original': document.property_area_original,
+                    'language': document.property_area_language,
+                    'translated': document.property_area_translated
+                },
+                'property_location': {
+                    'original': document.property_location_original,
+                    'language': document.property_location_language,
+                    'translated': document.property_location_translated
+                },
+                'property_coordinates': document.property_coordinates,
+                'property_value': document.property_value,
+                'loan_limit': document.loan_limit,
+                'risk_summary': {
+                    'original': document.risk_summary_original,
+                    'language': document.risk_summary_language,
+                    'translated': document.risk_summary_translated
                 }
             }
+            
             filename = f"property_document_{document_id}.json"
+        
+        elif document_type == 'custom':
+            document = get_object_or_404(CustomExtraction, id=document_id, user=request.user)
+            data = document.extracted_data
+            filename = f"custom_extraction_{document_id}.json"
+            
         else:
             return HttpResponse("Invalid document type", status=400)
         
-        # Create the JSON response
-        response = HttpResponse(json.dumps(data, indent=4), content_type='application/json')
+        # Convert data to JSON
+        json_data = json.dumps(data, indent=4)
+        
+        # Create response with JSON file
+        response = HttpResponse(json_data, content_type='application/json')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        
         return response
         
     except Exception as e:
         logger.error(f"Error downloading JSON: {str(e)}")
-        messages.error(request, f"Error downloading document: {str(e)}")
+        messages.error(request, f"Error downloading JSON: {str(e)}")
         return redirect('ocr_app:document-upload')
 
 
@@ -392,77 +487,105 @@ def download_csv(request, document_type, document_id):
     try:
         if document_type == 'loan':
             document = get_object_or_404(LoanDocument, id=document_id, user=request.user)
-            filename = f"loan_document_{document_id}.csv"
             
             # Create CSV response
             response = HttpResponse(content_type='text/csv')
-            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            response['Content-Disposition'] = f'attachment; filename="loan_document_{document_id}.csv"'
             
             writer = csv.writer(response)
-            # Write headers and rows for loan document
             writer.writerow(['Field', 'Original Value', 'Language', 'Translated Value'])
             
-            # Personal Information
+            # Write rows for each field
             writer.writerow(['Borrower Name', document.borrower_name_original, document.borrower_name_language, document.borrower_name_translated])
-            writer.writerow(['Date of Birth', document.date_of_birth if document.date_of_birth else '', '', ''])
-            writer.writerow(['Father Name', document.father_name_original, document.father_name_language, document.father_name_translated])
-            writer.writerow(['Spouse Name', document.spouse_name_original, document.spouse_name_language, document.spouse_name_translated])
+            writer.writerow(['Date of Birth', document.date_of_birth, '', ''])
+            writer.writerow(['Father\'s Name', document.father_name_original, document.father_name_language, document.father_name_translated])
+            writer.writerow(['Spouse\'s Name', document.spouse_name_original, document.spouse_name_language, document.spouse_name_translated])
             writer.writerow(['Sex', document.sex_original, document.sex_language, document.sex_translated])
-            
-            # Identity Information
             writer.writerow(['Aadhar Number', document.aadhar_number, '', ''])
             writer.writerow(['PAN Number', document.pan_number, '', ''])
             writer.writerow(['Passport Number', document.passport_number, '', ''])
             writer.writerow(['Driving License', document.driving_license, '', ''])
-            
-            # Loan Information
             writer.writerow(['Loan Amount', document.loan_amount, '', ''])
             writer.writerow(['Loan Purpose', document.loan_purpose_original, document.loan_purpose_language, document.loan_purpose_translated])
-            writer.writerow(['Loan Term (Months)', document.loan_term_months, '', ''])
+            writer.writerow(['Loan Term (months)', document.loan_term_months, '', ''])
             writer.writerow(['Monthly Income', document.monthly_income, '', ''])
             writer.writerow(['Credit Score', document.credit_score, '', ''])
-            writer.writerow(['Loan Sanction Date', document.loan_sanction_date if document.loan_sanction_date else '', '', ''])
+            writer.writerow(['Loan Sanction Date', document.loan_sanction_date, '', ''])
             writer.writerow(['Loan Balance', document.loan_balance, '', ''])
-            
-            # Additional Information
             writer.writerow(['Credibility Summary', document.credibility_summary_original, document.credibility_summary_language, document.credibility_summary_translated])
             
-            # Handle witness details and EMI history separately if needed
+            # Add witness details if any
             if document.witness_details:
                 writer.writerow([])
                 writer.writerow(['Witness Details'])
-                for i, witness in enumerate(document.witness_details):
-                    writer.writerow([f'Witness {i+1}', str(witness), '', ''])
+                for i, witness in enumerate(document.witness_details, 1):
+                    writer.writerow([f'Witness {i}', witness, '', ''])
             
+            # Add EMI history if any
             if document.emi_history:
                 writer.writerow([])
                 writer.writerow(['EMI History'])
-                for i, emi in enumerate(document.emi_history):
-                    writer.writerow([f'EMI {i+1}', str(emi), '', ''])
+                for i, emi in enumerate(document.emi_history, 1):
+                    writer.writerow([f'EMI {i}', emi, '', ''])
             
         elif document_type == 'property':
             document = get_object_or_404(PropertyDocument, id=document_id, user=request.user)
-            filename = f"property_document_{document_id}.csv"
             
             # Create CSV response
             response = HttpResponse(content_type='text/csv')
-            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            response['Content-Disposition'] = f'attachment; filename="property_document_{document_id}.csv"'
             
             writer = csv.writer(response)
-            # Write headers and rows for property document
             writer.writerow(['Field', 'Original Value', 'Language', 'Translated Value'])
             
-            # Property Information
+            # Write rows for each field
             writer.writerow(['Property Owner', document.property_owner_original, document.property_owner_language, document.property_owner_translated])
             writer.writerow(['Property Area', document.property_area_original, document.property_area_language, document.property_area_translated])
             writer.writerow(['Property Location', document.property_location_original, document.property_location_language, document.property_location_translated])
             writer.writerow(['Property Coordinates', document.property_coordinates, '', ''])
             writer.writerow(['Property Value', document.property_value, '', ''])
             writer.writerow(['Loan Limit', document.loan_limit, '', ''])
-            
-            # Risk Assessment
             writer.writerow(['Risk Summary', document.risk_summary_original, document.risk_summary_language, document.risk_summary_translated])
+        
+        elif document_type == 'custom':
+            document = get_object_or_404(CustomExtraction, id=document_id, user=request.user)
             
+            # Create CSV response
+            response = HttpResponse(content_type='text/csv')
+            response['Content-Disposition'] = f'attachment; filename="custom_extraction_{document_id}.csv"'
+            
+            writer = csv.writer(response)
+            
+            # Check if the data has translations
+            has_translations = any(
+                isinstance(value, dict) and 'original' in value and 'translated' in value 
+                for value in document.extracted_data.values()
+            )
+            
+            if has_translations:
+                writer.writerow(['Field', 'Original Value', 'Language', 'Translated Value'])
+                
+                # Write rows for each field with translations
+                for key, value in document.extracted_data.items():
+                    if isinstance(value, dict) and 'original' in value:
+                        writer.writerow([
+                            key, 
+                            value.get('original', ''), 
+                            value.get('language', ''), 
+                            value.get('translated', '')
+                        ])
+                    else:
+                        writer.writerow([key, value, '', ''])
+            else:
+                writer.writerow(['Field', 'Value'])
+                
+                # Write rows for each field without translations
+                for key, value in document.extracted_data.items():
+                    if isinstance(value, (list, dict)):
+                        writer.writerow([key, json.dumps(value)])
+                    else:
+                        writer.writerow([key, value])
+        
         else:
             return HttpResponse("Invalid document type", status=400)
         
@@ -470,5 +593,30 @@ def download_csv(request, document_type, document_id):
         
     except Exception as e:
         logger.error(f"Error downloading CSV: {str(e)}")
-        messages.error(request, f"Error downloading document: {str(e)}")
+        messages.error(request, f"Error downloading CSV: {str(e)}")
         return redirect('ocr_app:document-upload')
+
+
+@app_access_required
+def get_saved_prompts(request):
+    """API endpoint to get saved prompts for a specific document type"""
+    document_type = request.GET.get('document_type', '')
+    if not document_type:
+        logger.warning("get_saved_prompts called without document_type")
+        return JsonResponse({'error': 'Document type is required', 'prompts': []}, status=400)
+    
+    try:
+        logger.info(f"Fetching saved prompts for user {request.user.id} and document type '{document_type}'")
+        
+        prompts = ExtractionPrompt.objects.filter(
+            user=request.user,
+            document_type=document_type
+        ).values('id', 'name', 'prompt_text')
+        
+        prompts_list = list(prompts)
+        logger.info(f"Found {len(prompts_list)} prompts for document type '{document_type}'")
+        
+        return JsonResponse({'prompts': prompts_list})
+    except Exception as e:
+        logger.error(f"Error fetching saved prompts: {str(e)}")
+        return JsonResponse({'error': str(e), 'prompts': []}, status=500)

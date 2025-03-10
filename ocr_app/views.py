@@ -6,7 +6,7 @@ from django.utils.decorators import method_decorator
 from django.contrib import messages
 from django.core.files.storage import FileSystemStorage
 from .services.rag_utils import extract_data_from_document
-from .models import CustomUser, LoanDocument, PropertyDocument, ExtractionPrompt, CustomExtraction
+from .models import CustomUser, LoanDocument, PropertyDocument, TableDocument, ExtractionPrompt, CustomExtraction
 from django.views.generic.edit import CreateView
 from django.urls import reverse_lazy
 from .forms import CustomUserCreationForm
@@ -288,60 +288,98 @@ class DocumentProcessView(View):
                     logger.error(f'Error saving loan document: {str(e)}')
                     return render(request, self.template_name)
                 
-            else:  # property document
+            # Standard processing for property documents
+            elif document_type == 'property':
                 # Handle property document with translations
-                # Get the data with proper default values
                 property_data = result.get('structured_data', {})
                 
-                property_owner = property_data.get('property_owner', {})
-                property_location = property_data.get('property_location', {})
-                risk_summary = property_data.get('risk_summary', {})
+                # Get data with safe defaults
+                property_owner = safe_get(property_data, 'property_owner')
+                property_area = safe_get(property_data, 'property_area')
+                property_location = safe_get(property_data, 'property_location')
+                risk_summary = safe_get(property_data, 'risk_summary')
                 
                 property_doc = PropertyDocument(
                     user=request.user,
-                    # Property owner details
-                    property_owner_original=property_owner.get('original', ''),
-                    property_owner_language=property_owner.get('language', 'en'),
-                    property_owner_translated=property_owner.get('translated', ''),
+                    # Property Information
+                    property_owner_original=property_owner['original'],
+                    property_owner_language=property_owner['language'],
+                    property_owner_translated=property_owner['translated'],
                     
-                    # Property area
-                    property_area_original=property_data.get('property_area', {}).get('original', ''),
-                    property_area_language=property_data.get('property_area', {}).get('language', 'en'),
-                    property_area_translated=property_data.get('property_area', {}).get('translated', ''),
+                    property_area_original=property_area['original'],
+                    property_area_language=property_area['language'],
+                    property_area_translated=property_area['translated'],
                     
-                    # Property location
-                    property_location_original=property_location.get('original', ''),
-                    property_location_language=property_location.get('language', 'en'),
-                    property_location_translated=property_location.get('translated', ''),
+                    property_location_original=property_location['original'],
+                    property_location_language=property_location['language'],
+                    property_location_translated=property_location['translated'],
                     
-                    # Other property details
                     property_coordinates=property_data.get('property_coordinates', {}).get('original', ''),
                     property_value=property_data.get('property_value', {}).get('original', ''),
                     loan_limit=property_data.get('loan_limit', {}).get('original', ''),
                     
-                    # Risk summary
-                    risk_summary_original=risk_summary.get('original', ''),
-                    risk_summary_language=risk_summary.get('language', 'en'),
-                    risk_summary_translated=risk_summary.get('translated', '')
+                    risk_summary_original=risk_summary['original'],
+                    risk_summary_language=risk_summary['language'],
+                    risk_summary_translated=risk_summary['translated']
                 )
                 
                 try:
                     property_doc.save()
                     messages.success(request, 'Property document processed successfully!')
                     
-                    # Pass the processed data to the template
-                    context = {
+                    # Create a list of fields and their languages for the template
+                    languages_detected = [
+                        ("Property Owner", property_doc.property_owner_language),
+                        ("Property Area", property_doc.property_area_language),
+                        ("Property Location", property_doc.property_location_language),
+                        ("Risk Summary", property_doc.risk_summary_language)
+                    ]
+                    
+                    return render(request, self.template_name, {
+                        'property_doc': property_doc,
+                        'document_type': document_type,
                         'processed_data': True,
-                        'document_type': 'property',
-                        'property_doc': property_doc
-                    }
-                    return render(request, self.template_name, context)
+                        'languages_detected': languages_detected
+                    })
                     
                 except Exception as e:
                     messages.error(request, f'Error saving document: {str(e)}')
                     logger.error(f'Error saving property document: {str(e)}')
                     return render(request, self.template_name)
-
+            
+            # Standard processing for table documents
+            elif document_type == 'table':
+                # Handle table document extraction
+                table_data = result.get('structured_data', {})
+                
+                # Get columns and rows from the extracted data
+                columns = table_data.get('columns', [])
+                rows = table_data.get('rows', [])
+                
+                table_doc = TableDocument(
+                    user=request.user,
+                    table_data=table_data,
+                    columns=columns,
+                    rows=rows
+                )
+                
+                try:
+                    table_doc.save()
+                    messages.success(request, 'Table document processed successfully!')
+                    
+                    return render(request, self.template_name, {
+                        'table_doc': table_doc,
+                        'document_type': document_type,
+                        'processed_data': True,
+                        'table_columns': columns,
+                        'table_rows': rows
+                    })
+                    
+                except Exception as e:
+                    messages.error(request, f'Error saving document: {str(e)}')
+                    logger.error(f'Error saving table document: {str(e)}')
+                    return render(request, self.template_name)
+        
         except Exception as e:
             print(f"Error processing document: {str(e)}")
             messages.error(request, f"Error processing document: {str(e)}")

@@ -20,3 +20,10 @@ def pprint(value):
     if isinstance(value, dict):
         return json.dumps(value, indent=2)
     return value
+
+@register.filter
+def get_item(dictionary, key):
+    """Get an item from a dictionary using the key"""
+    if dictionary is None:
+        return ""
+    return dictionary.get(key, "")

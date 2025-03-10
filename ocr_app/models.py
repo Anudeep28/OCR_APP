@@ -100,9 +100,19 @@ class PropertyDocument(models.Model):
     def __str__(self):
         return f"Property Document - {self.property_owner_original}"
 
+class TableDocument(models.Model):
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    table_data = models.JSONField(default=dict, blank=True)
+    columns = models.JSONField(default=list, blank=True)
+    rows = models.JSONField(default=list, blank=True)
+    
+    def __str__(self):
+        return f"Table Document - {self.id}"
+
 class ExtractionPrompt(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
-    document_type = models.CharField(max_length=20, choices=[('loan', 'Loan Document'), ('property', 'Property Document')])
+    document_type = models.CharField(max_length=20, choices=[('loan', 'Loan Document'), ('property', 'Property Document'), ('table', 'Table Document')])
     name = models.CharField(max_length=100)
     prompt_text = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)

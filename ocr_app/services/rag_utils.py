@@ -477,6 +477,151 @@ def extract_loan_data_from_image(image, model, custom_prompt=None):
         print(f"Traceback: {traceback.format_exc()}")
         return None
 
+def extract_table_data_from_image(image, model, custom_prompt=None):
+    """Extract table data from a single image using Gemini vision model"""
+    try:
+        print("\n=== Starting Table Data Extraction ===")
+        print(f"Image type: {type(image)}")
+        if isinstance(image, str):
+            print("Image is already a base64 string")
+            image_data = image
+        else:
+            print("Converting image to base64")
+            image_data = image_to_base64(image)
+
+        # Use custom prompt if provided, otherwise use default
+        if custom_prompt:
+            prompt = custom_prompt
+            print("Using custom prompt for table extraction")
+        else:
+            prompt = """Please extract the data from this table image. Identify all columns and rows, and return the data in a structured JSON format with the following structure:
+            {
+                "columns": ["Column1", "Column2", "Column3", ...],
+                "rows": [
+                    {"Column1": "value1", "Column2": "value2", "Column3": "value3", ...},
+                    {"Column1": "value1", "Column2": "value2", "Column3": "value3", ...},
+                    ...
+                ]
+            }
+            
+            Important:
+            1. Return ONLY the JSON object, no additional text
+            2. Preserve the exact column names as they appear in the table
+            3. Make sure all rows have values for all columns (use empty string if no value)
+            4. Ensure the data is properly structured with each row as an object with column names as keys
+            5. Use DOUBLE QUOTES for both property names and string values, not single quotes
+            6. If there are merged cells, duplicate the value in all applicable rows/columns
+            7. Keep all text in its original language - do not translate
+            8. If a cell contains numeric data, preserve it as a string with the original formatting
+            """
+            print("Using default prompt for table extraction")
+
+        print("\n=== Sending Request to Gemini ===")
+        print(f"Prompt length: {len(prompt)}")
+        print("Generating content with Gemini...")
+        
+        # Create image parts for the model
+        image_part = {'mime_type': 'image/jpeg', 'data': image_data}
+        response = model.generate_content([prompt, image_part])
+        
+        print("\n=== Processing Gemini Response ===")
+        print(f"Response type: {type(response)}")
+        print(f"Raw response preview: {str(response.text)[:200]}...")
+
+        # Extract JSON from the response
+        response_text = response.text
+        # Remove any markdown code block syntax if present
+        response_text = response_text.replace('```json', '').replace('```', '').strip()
+        print("\nCleaned response text preview:")
+        print(response_text[:200])
+
+        print("\n=== Parsing JSON ===")
+        try:
+            # First attempt - direct parsing
+            extracted_data = json.loads(response_text)
+        except json.JSONDecodeError as e:
+            print(f"Initial JSON parsing failed: {str(e)}")
+            
+            # Second attempt - try to find JSON-like content within the response
+            try:
+                # Look for content between curly braces
+                start_idx = response_text.find('{')
+                end_idx = response_text.rfind('}') + 1
+                
+                if start_idx >= 0 and end_idx > start_idx:
+                    json_content = response_text[start_idx:end_idx]
+                    print(f"Extracted JSON-like content: {json_content[:100]}...")
+                    
+                    # Fix Python-style dictionaries (with single quotes)
+                    if "'" in json_content:
+                        # Replace Python-style single quotes with double quotes for JSON compatibility
+                        import re
+                        
+                        # First, escape any existing double quotes that are inside string values
+                        # This pattern looks for double quotes that are between single quotes
+                        fixed_content = re.sub(r"'([^']*?)\"([^']*?)'", r'"\1\\"\2"', json_content)
+                        
+                        # Then, handle the property names (keys)
+                        # This regex looks for patterns like 'key': or 'key' :
+                        fixed_content = re.sub(r"'([^']+)'(\s*):(\s*)", r'"\1"\2:\3', fixed_content)
+                        
+                        # Then handle the string values
+                        # This regex looks for patterns like : 'value' or : 'value',
+                        fixed_content = re.sub(r":(\s*)'([^']*)'(,|\s*}|$)", r':\1"\2"\3', fixed_content)
+                        
+                        print(f"Fixed JSON content: {fixed_content[:100]}...")
+                        extracted_data = json.loads(fixed_content)
+                    else:
+                        extracted_data = json.loads(json_content)
+                else:
+                    # Third attempt - try to fix common JSON formatting issues
+                    fixed_text = response_text
+                    # Replace single quotes with double quotes for JSON compatibility
+                    fixed_text = fixed_text.replace("'", '"')
+                    # Ensure property names have double quotes
+                    import re
+                    fixed_text = re.sub(r'(\s*)(\w+)(\s*):(\s*)', r'\1"\2"\3:\4', fixed_text)
+                    print(f"Fixed JSON text: {fixed_text[:100]}...")
+                    extracted_data = json.loads(fixed_text)
+            except Exception as inner_e:
+                print(f"All JSON parsing attempts failed: {str(inner_e)}")
+                print("Falling back to a structured empty response")
+                
+                # Create a default structure for table data
+                extracted_data = {
+                    "columns": [],
+                    "rows": []
+                }
+        
+        print("JSON parsed successfully")
+        print(f"Extracted data keys: {list(extracted_data.keys())}")
+
+        # Ensure the extracted data has the expected structure
+        if "columns" not in extracted_data:
+            extracted_data["columns"] = []
+        if "rows" not in extracted_data:
+            extracted_data["rows"] = []
+
+        # Validate and clean up the data
+        columns = extracted_data["columns"]
+        rows = extracted_data["rows"]
+        
+        # Ensure all rows have all columns
+        for row in rows:
+            for col in columns:
+                if col not in row:
+                    row[col] = ""
+
+        print(f"Extracted {len(columns)} columns and {len(rows)} rows")
+        return extracted_data
+
+    except Exception as e:
+        print(f"\n!!! ERROR in extract_table_data_from_image: {str(e)}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        return None
+
 def extract_data_from_document(file_path, document_type='loan', custom_prompt=None):
     """Process document and extract structured data using Gemini vision model"""
     try:
@@ -494,7 +639,17 @@ def extract_data_from_document(file_path, document_type='loan', custom_prompt=No
         print("Gemini model initialized")
         
         all_extracted_data = []
-        extract_function = extract_loan_data_from_image if document_type == 'loan' else extract_property_data_from_image
+        
+        # Select the appropriate extraction function based on document type
+        if document_type == 'loan':
+            extract_function = extract_loan_data_from_image
+        elif document_type == 'property':
+            extract_function = extract_property_data_from_image
+        elif document_type == 'table':
+            extract_function = extract_table_data_from_image
+        else:
+            # Default to loan document extraction
+            extract_function = extract_loan_data_from_image
         
         # Handle PDF files
         if file_path.lower().endswith('.pdf'):
@@ -544,6 +699,37 @@ def extract_data_from_document(file_path, document_type='loan', custom_prompt=No
         print("\n=== Merging Data ===")
         # Merge data from all pages (for PDFs) or use single image data
         merged_data = all_extracted_data[0]  # Use first page as base
+        
+        # For table documents, we need special handling to merge tables across pages
+        if document_type == 'table':
+            if len(all_extracted_data) > 1:
+                # For tables, we'll merge by appending rows and ensuring columns are consistent
+                all_columns = set()
+                for data in all_extracted_data:
+                    all_columns.update(data.get("columns", []))
+                
+                # Convert to list and maintain order
+                all_columns_list = list(all_columns)
+                
+                # Create a new merged structure
+                merged_rows = []
+                for data in all_extracted_data:
+                    rows = data.get("rows", [])
+                    # Ensure all rows have all columns
+                    for row in rows:
+                        for col in all_columns_list:
+                            if col not in row:
+                                row[col] = ""
+                        merged_rows.append(row)
+                
+                merged_data = {
+                    "columns": all_columns_list,
+                    "rows": merged_rows
+                }
+            return {
+                'success': True,
+                'structured_data': merged_data
+            }
         
         # For custom prompts, we want to preserve the original field names
         if custom_prompt:

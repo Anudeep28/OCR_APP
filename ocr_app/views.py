@@ -107,6 +107,19 @@ class DocumentProcessView(View):
                 messages.error(request, f"Error processing document: {result.get('error', 'Unknown error')}")
                 return render(request, self.template_name)
             
+            # Helper function to safely get values with proper structure
+            def safe_get(data_dict, key):
+                if not data_dict:
+                    return {'original': '', 'language': 'en', 'translated': ''}
+                value = data_dict.get(key, {})
+                if not isinstance(value, dict):
+                    return {'original': '', 'language': 'en', 'translated': ''}
+                return {
+                    'original': value.get('original', '') or '',
+                    'language': value.get('language', 'en') or 'unk',
+                    'translated': value.get('translated', '') or ''
+                }
+            
             # Handle custom extraction if using a custom prompt
             if use_custom_prompt:
                 # Get the structured data
@@ -172,19 +185,6 @@ class DocumentProcessView(View):
             if document_type == 'loan':
                 # Handle loan document with translations
                 loan_data = result.get('structured_data', {})
-                
-                # Helper function to safely get values
-                def safe_get(data_dict, key):
-                    if not data_dict:
-                        return {'original': '', 'language': 'en', 'translated': ''}
-                    value = data_dict.get(key, {})
-                    if not isinstance(value, dict):
-                        return {'original': '', 'language': 'en', 'translated': ''}
-                    return {
-                        'original': value.get('original', '') or '',
-                        'language': value.get('language', 'en') or 'en',
-                        'translated': value.get('translated', '') or ''
-                    }
                 
                 # Get data with safe defaults
                 borrower_name = safe_get(loan_data, 'borrower_name')
@@ -501,6 +501,18 @@ def download_json(request, document_type, document_id):
             data = document.extracted_data
             filename = f"custom_extraction_{document_id}.json"
             
+        elif document_type == 'table':
+            document = get_object_or_404(TableDocument, id=document_id, user=request.user)
+            
+            # Create a dictionary with all the table data
+            data = {
+                'columns': document.columns,
+                'rows': document.rows,
+                'table_data': document.table_data
+            }
+            
+            filename = f"table_document_{document_id}.json"
+            
         else:
             return HttpResponse("Invalid document type", status=400)
         
@@ -565,7 +577,7 @@ def download_csv(request, document_type, document_id):
                 writer.writerow(['EMI History'])
                 for i, emi in enumerate(document.emi_history, 1):
                     writer.writerow([f'EMI {i}', emi, '', ''])
-            
+        
         elif document_type == 'property':
             document = get_object_or_404(PropertyDocument, id=document_id, user=request.user)
             
@@ -623,6 +635,47 @@ def download_csv(request, document_type, document_id):
                         writer.writerow([key, json.dumps(value)])
                     else:
                         writer.writerow([key, value])
+        
+        elif document_type == 'table':
+            document = get_object_or_404(TableDocument, id=document_id, user=request.user)
+            
+            # Create CSV response
+            response = HttpResponse(content_type='text/csv')
+            response['Content-Disposition'] = f'attachment; filename="table_document_{document_id}.csv"'
+            
+            writer = csv.writer(response)
+            
+            # If we have columns defined, use them as headers
+            if document.columns:
+                writer.writerow(document.columns)
+                
+                # Write each row of data
+                for row in document.rows:
+                    # Ensure we maintain column order
+                    row_values = [row.get(col, '') for col in document.columns]
+                    writer.writerow(row_values)
+            
+            # If no columns are defined but we have rows with keys
+            elif document.rows and isinstance(document.rows[0], dict):
+                # Get all unique keys from all rows
+                all_keys = set()
+                for row in document.rows:
+                    all_keys.update(row.keys())
+                
+                # Sort keys for consistent output
+                sorted_keys = sorted(all_keys)
+                
+                # Write header row
+                writer.writerow(sorted_keys)
+                
+                # Write data rows
+                for row in document.rows:
+                    writer.writerow([row.get(key, '') for key in sorted_keys])
+            
+            # Fallback for any other table structure
+            else:
+                writer.writerow(['Table Data'])
+                writer.writerow([json.dumps(document.table_data)])
         
         else:
             return HttpResponse("Invalid document type", status=400)

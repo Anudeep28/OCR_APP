@@ -32,7 +32,7 @@ def detect_and_translate(text, model):
             return {"original": "", "language": "", "translated": ""}
 
         # First, detect the language
-        prompt = f"""Analyze the following text and determine its language. If it's in an Indian language, specify which one. Return ONLY the language code (e.g., 'hi' for Hindi, 'ta' for Tamil, etc.) or 'en' for English. Text to analyze:
+        prompt = f"""Analyze the following text and determine text language (ex. when you see Rajendra Goswami it is not Hindi, it is written in English). If it's in an Indian language, specify which one. Return ONLY the language code (e.g., 'hi' for Hindi, 'ta' for Tamil, etc.) or 'en' for English. Text to analyze:
 
 {text}"""
         
@@ -214,7 +214,7 @@ def extract_property_data_from_image(image, model, custom_prompt=None):
                         extracted_data[field] = ""
                 
                 # If no fields were extracted or custom_prompt is None, use default fields
-                if not extracted_data:
+                if not extracted_data and not custom_prompt:
                     extracted_data = {
                         "application_date": "",
                         "bank_name": "",
@@ -223,7 +223,8 @@ def extract_property_data_from_image(image, model, custom_prompt=None):
                         "property_location": "",
                         "property_value": "",
                         "property_size": "",
-                        "loan_limit": ""
+                        "loan_limit": "",
+                        "risk_summary": ""
                     }
         
         print("JSON parsed successfully")
@@ -231,22 +232,38 @@ def extract_property_data_from_image(image, model, custom_prompt=None):
 
         # Process translations for text fields
         translated_data = {}
-        for field in extracted_data.keys():
-            value = extracted_data.get(field, '')
-            if value and isinstance(value, str):
-                translated_data[field] = detect_and_translate(value, model)
-            else:
-                translated_data[field] = {
-                    'original': value if value is not None else '',
-                    'language': 'none',
-                    'translated': value if value is not None else ''
-                }
+        
+        # If using a custom prompt, only process fields that were extracted
+        if custom_prompt:
+            for field in extracted_data.keys():
+                value = extracted_data.get(field, '')
+                if isinstance(value, str):
+                    translated_data[field] = detect_and_translate(value, model)
+                else:
+                    translated_data[field] = {
+                        'original': value if value is not None else '',
+                        'language': 'none',
+                        'translated': value if value is not None else ''
+                    }
+        else:
+            # For default prompts, ensure all required fields are present
+            for field in extracted_data.keys():
+                value = extracted_data.get(field, '')
+                if isinstance(value, str):
+                    translated_data[field] = detect_and_translate(value, model)
+                else:
+                    translated_data[field] = {
+                        'original': value if value is not None else '',
+                        'language': 'none',
+                        'translated': value if value is not None else ''
+                    }
 
         print("\n=== Translation Complete ===")
         return translated_data
 
     except Exception as e:
         print(f"\n!!! ERROR in extract_property_data_from_image: {str(e)}")
+
         print(f"Error type: {type(e)}")
         import traceback
         print(f"Traceback: {traceback.format_exc()}")
@@ -410,7 +427,7 @@ def extract_loan_data_from_image(image, model, custom_prompt=None):
                         extracted_data[field] = ""
                 
                 # If no fields were extracted or custom_prompt is None, use default fields
-                if not extracted_data:
+                if not extracted_data and not custom_prompt:
                     extracted_data = {
                         "borrower_name": "",
                         "date_of_birth": "",
@@ -433,24 +450,14 @@ def extract_loan_data_from_image(image, model, custom_prompt=None):
         print("JSON parsed successfully")
         print(f"Extracted data keys: {list(extracted_data.keys())}")
 
-        # Ensure all required fields are present and process translations
-        required_fields = [
-            "borrower_name", "date_of_birth", "sex", "father_name", "spouse_name",
-            "aadhar_number", "pan_number", "passport_number", "driving_license",
-            "loan_amount", "loan_sanction_date", "loan_balance", "witness_details",
-            "emi_history", "credibility_summary", "bank_name"
-        ]
-        
         # Process translations for text fields
         translated_data = {}
-        for field in required_fields:
-            if field not in extracted_data:
-                print(f"Adding missing field: {field}")
-                extracted_data[field] = "" if field not in ["witness_details", "emi_history"] else []
-                translated_data[field] = {"original": "", "language": "", "translated": ""}
-            else:
-                value = extracted_data[field]
-                if field in ["witness_details", "emi_history"]:
+        
+        # If using a custom prompt, only process fields that were extracted
+        if custom_prompt:
+            for field in extracted_data.keys():
+                value = extracted_data.get(field, '')
+                if field in ["witness_details", "emi_history"] and isinstance(value, list):
                     # Handle arrays
                     translated_array = []
                     for item in value:
@@ -459,13 +466,47 @@ def extract_loan_data_from_image(image, model, custom_prompt=None):
                         else:
                             translated_array.append(item)
                     translated_data[field] = translated_array
-                elif isinstance(value, str) and value.strip():  # Only translate non-empty strings
-                    # Handle string fields
+                elif isinstance(value, str):
                     translated_data[field] = detect_and_translate(value, model)
-                    print(f"Translated {field}: {translated_data[field]}")  # Add debug logging
                 else:
-                    # Handle non-string fields (like numbers) or empty strings
-                    translated_data[field] = {"original": value, "language": "none", "translated": value}
+                    translated_data[field] = {
+                        'original': value if value is not None else '',
+                        'language': 'none',
+                        'translated': value if value is not None else ''
+                    }
+        else:
+            # For default prompts, ensure all required fields are present
+            required_fields = [
+                "borrower_name", "date_of_birth", "sex", "father_name", "spouse_name",
+                "aadhar_number", "pan_number", "passport_number", "driving_license",
+                "loan_amount", "loan_sanction_date", "loan_balance", "witness_details",
+                "emi_history", "credibility_summary", "bank_name"
+            ]
+            
+            for field in required_fields:
+                if field not in extracted_data:
+                    print(f"Adding missing field: {field}")
+                    extracted_data[field] = "" if field not in ["witness_details", "emi_history"] else []
+                    translated_data[field] = {"original": "", "language": "", "translated": ""}
+                else:
+                    value = extracted_data.get(field, '')
+                    if field in ["witness_details", "emi_history"]:
+                        # Handle arrays
+                        translated_array = []
+                        for item in value:
+                            if isinstance(item, str) and item.strip():  # Only translate non-empty strings
+                                translated_array.append(detect_and_translate(item, model))
+                            else:
+                                translated_array.append(item)
+                        translated_data[field] = translated_array
+                    elif isinstance(value, str):
+                        translated_data[field] = detect_and_translate(value, model)
+                    else:
+                        translated_data[field] = {
+                            'original': value if value is not None else '',
+                            'language': 'none',
+                            'translated': value if value is not None else ''
+                        }
 
         print("\n=== Translation Complete ===")
         return translated_data
@@ -737,22 +778,24 @@ def extract_data_from_document(file_path, document_type='loan', custom_prompt=No
                 # Update empty fields from subsequent pages
                 for key, value in data.items():
                     try:
-                        # Handle dictionary values (like translated fields)
-                        if isinstance(value, dict) and isinstance(merged_data.get(key), dict):
-                            # If the original field is empty but this one has content, use this one
-                            if (not merged_data[key].get("original") or merged_data[key].get("original") == "") and value.get("original"):
+                        # Only process keys that already exist in merged_data
+                        if key in merged_data:
+                            # Handle dictionary values (like translated fields)
+                            if isinstance(value, dict) and isinstance(merged_data.get(key), dict):
+                                # If the original field is empty but this one has content, use this one
+                                if (not merged_data[key].get("original") or merged_data[key].get("original") == "") and value.get("original"):
+                                    merged_data[key] = value
+                                    print(f"Updated field {key} from subsequent page")
+                            # Handle list values
+                            elif isinstance(value, list) and isinstance(merged_data.get(key), list):
+                                # Extend lists with unique values
+                                for item in value:
+                                    if item not in merged_data[key]:
+                                        merged_data[key].append(item)
+                            # Handle simple values (like dates and numbers)
+                            elif (not merged_data.get(key) or merged_data.get(key) == "") and value:
                                 merged_data[key] = value
                                 print(f"Updated field {key} from subsequent page")
-                        # Handle list values
-                        elif isinstance(value, list) and isinstance(merged_data.get(key), list):
-                            # Extend lists with unique values
-                            for item in value:
-                                if item not in merged_data[key]:
-                                    merged_data[key].append(item)
-                        # Handle simple values (like dates and numbers)
-                        elif (not merged_data.get(key) or merged_data.get(key) == "") and value:
-                            merged_data[key] = value
-                            print(f"Updated field {key} from subsequent page")
                     except Exception as e:
                         print(f"Error merging field {key}: {str(e)}")
                         continue

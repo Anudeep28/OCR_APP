@@ -27,3 +27,27 @@ def get_item(dictionary, key):
     if dictionary is None:
         return ""
     return dictionary.get(key, "")
+
+@register.filter
+def replace_underscore(value):
+    """Replace underscores with spaces and capitalize each word"""
+    if value is None:
+        return ""
+    return value.replace('_', ' ').title()
+
+@register.filter
+def get_attribute(obj, attr):
+    """Get an attribute from an object by name"""
+    if obj is None:
+        return ""
+    try:
+        return getattr(obj, attr, "")
+    except:
+        return ""
+
+@register.filter
+def split(value, delimiter):
+    """Split a string into a list"""
+    if value is None:
+        return []
+    return value.split(delimiter)

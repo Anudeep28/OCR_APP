@@ -71,6 +71,70 @@ class LoanDocument(models.Model):
     
     def __str__(self):
         return f"Loan Document - {self.borrower_name_original}"
+        
+    def get_display_fields(self):
+        """Return all fields and their values as a dictionary for display"""
+        fields = {}
+        for field in self._meta.fields:
+            if field.name not in ['id', 'user', 'uploaded_at']:
+                fields[field.name] = getattr(self, field.name)
+        return fields
+    
+    def get_language_fields(self):
+        """Return all language fields and their values"""
+        language_fields = {}
+        for field in self._meta.fields:
+            if field.name.endswith('_language'):
+                base_field = field.name[:-9]  # Remove '_language' suffix
+                language_fields[base_field] = getattr(self, field.name)
+        return language_fields
+        
+    def get_processed_fields(self):
+        """Return processed fields for display with clean names and paired translations"""
+        processed = {
+            'translatable_fields': [],
+            'simple_fields': []
+        }
+        
+        # Get all fields
+        all_fields = self.get_display_fields()
+        
+        # Process translatable fields (those with _original suffix)
+        for field_name, value in all_fields.items():
+            if field_name.endswith('_original'):
+                base_name = field_name[:-9]  # Remove '_original' suffix
+                lang_field = f"{base_name}_language"
+                trans_field = f"{base_name}_translated"
+                
+                # Get language and translated values if they exist
+                language = all_fields.get(lang_field, 'en')
+                translated = all_fields.get(trans_field, '')
+                
+                # Add to translatable fields with clean name
+                processed['translatable_fields'].append({
+                    'name': base_name.replace('_', ' ').title(),
+                    'original': value,
+                    'language': language,
+                    'translated': translated
+                })
+            # Process simple fields (those without _original, _language, or _translated suffix)
+            elif not (field_name.endswith('_language') or field_name.endswith('_translated') or 
+                     field_name in ['id', 'user', 'document', 'created_at', 'updated_at']):
+                
+                # Check if this is a simple field (not part of a translatable field)
+                is_simple = True
+                for suffix in ['_original', '_language', '_translated']:
+                    if field_name.replace(suffix, '') in all_fields:
+                        is_simple = False
+                        break
+                
+                if is_simple:
+                    processed['simple_fields'].append({
+                        'name': field_name.replace('_', ' ').title(),
+                        'value': value
+                    })
+                    
+        return processed
 
 class PropertyDocument(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
@@ -99,6 +163,70 @@ class PropertyDocument(models.Model):
     
     def __str__(self):
         return f"Property Document - {self.property_owner_original}"
+        
+    def get_display_fields(self):
+        """Return all fields and their values as a dictionary for display"""
+        fields = {}
+        for field in self._meta.fields:
+            if field.name not in ['id', 'user', 'uploaded_at']:
+                fields[field.name] = getattr(self, field.name)
+        return fields
+    
+    def get_language_fields(self):
+        """Return all language fields and their values"""
+        language_fields = {}
+        for field in self._meta.fields:
+            if field.name.endswith('_language'):
+                base_field = field.name[:-9]  # Remove '_language' suffix
+                language_fields[base_field] = getattr(self, field.name)
+        return language_fields
+        
+    def get_processed_fields(self):
+        """Return processed fields for display with clean names and paired translations"""
+        processed = {
+            'translatable_fields': [],
+            'simple_fields': []
+        }
+        
+        # Get all fields
+        all_fields = self.get_display_fields()
+        
+        # Process translatable fields (those with _original suffix)
+        for field_name, value in all_fields.items():
+            if field_name.endswith('_original'):
+                base_name = field_name[:-9]  # Remove '_original' suffix
+                lang_field = f"{base_name}_language"
+                trans_field = f"{base_name}_translated"
+                
+                # Get language and translated values if they exist
+                language = all_fields.get(lang_field, 'en')
+                translated = all_fields.get(trans_field, '')
+                
+                # Add to translatable fields with clean name
+                processed['translatable_fields'].append({
+                    'name': base_name.replace('_', ' ').title(),
+                    'original': value,
+                    'language': language,
+                    'translated': translated
+                })
+            # Process simple fields (those without _original, _language, or _translated suffix)
+            elif not (field_name.endswith('_language') or field_name.endswith('_translated') or 
+                     field_name in ['id', 'user', 'document', 'created_at', 'updated_at']):
+                
+                # Check if this is a simple field (not part of a translatable field)
+                is_simple = True
+                for suffix in ['_original', '_language', '_translated']:
+                    if field_name.replace(suffix, '') in all_fields:
+                        is_simple = False
+                        break
+                
+                if is_simple:
+                    processed['simple_fields'].append({
+                        'name': field_name.replace('_', ' ').title(),
+                        'value': value
+                    })
+                    
+        return processed
 
 class TableDocument(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)

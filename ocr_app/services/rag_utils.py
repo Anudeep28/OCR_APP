@@ -8,6 +8,9 @@ import json
 import os
 import base64
 from io import BytesIO
+import fitz  # PyMuPDF
+import cv2
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,69 @@ def image_to_base64(image):
     img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
     print(f"Base64 string length: {len(img_str)}")
     return img_str
+
+def convert_pdf_to_images(pdf_path, target_dpi=300):
+    """Convert PDF to images with quality optimizations"""
+    try:
+        pdf_document = fitz.open(pdf_path)
+        temp_dir = tempfile.mkdtemp()
+        images = []
+        
+        for page_num in range(len(pdf_document)):
+            page = pdf_document.load_page(page_num)
+            
+            # Calculate zoom factor for target DPI
+            zoom = target_dpi / 72
+            matrix = fitz.Matrix(zoom, zoom)
+            
+            pix = page.get_pixmap(
+                matrix=matrix,
+                colorspace=fitz.csGRAY,  # Grayscale conversion
+                alpha=False
+            )
+            
+            image_path = os.path.join(temp_dir, f"page_{page_num + 1}.png")
+            pix.save(image_path)
+            
+            # Apply post-processing
+            enhanced_image = enhance_image_quality(image_path)
+            cv2.imwrite(image_path, enhanced_image)
+            
+            # Convert to PIL Image for compatibility with existing code
+            pil_image = Image.open(image_path)
+            images.append(pil_image)
+            
+        return images
+    except Exception as e:
+        print(f"Error converting PDF: {str(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        return []
+
+def enhance_image_quality(image_path):
+    """Optimized image preprocessing pipeline"""
+    try:
+        img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        
+        # CLAHE for contrast enhancement
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        img = clahe.apply(img)
+        
+        # Adaptive thresholding
+        img = cv2.adaptiveThreshold(
+            img, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY, 11, 2
+        )
+        
+        # Noise reduction
+        img = cv2.fastNlMeansDenoising(img, h=10, 
+                                    templateWindowSize=7, 
+                                    searchWindowSize=21)
+        return img
+    except Exception as e:
+        print(f"Error enhancing image: {str(e)}")
+        return cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
 def detect_and_translate(text, model):
     """Detect language and translate text to English using Gemini"""
@@ -216,15 +282,15 @@ def extract_property_data_from_image(image, model, custom_prompt=None):
                 # If no fields were extracted or custom_prompt is None, use default fields
                 if not extracted_data and not custom_prompt:
                     extracted_data = {
-                        "application_date": "",
-                        "bank_name": "",
                         "property_owner": "",
                         "property_area": "",
                         "property_location": "",
                         "property_value": "",
                         "property_size": "",
                         "loan_limit": "",
-                        "risk_summary": ""
+                        "risk_summary": "",
+                        "bank_name": "",
+                        "application_date": ""
                     }
         
         print("JSON parsed successfully")
@@ -700,7 +766,7 @@ def extract_data_from_document(file_path, document_type='loan', custom_prompt=No
             print(f"Poppler path exists: {os.path.exists(poppler_path)}")
             
             try:
-                images = convert_from_path(file_path, poppler_path=poppler_path)
+                images = convert_pdf_to_images(file_path)
                 print(f"Converted PDF to {len(images)} images")
             except Exception as e:
                 print(f"Error converting PDF: {str(e)}")

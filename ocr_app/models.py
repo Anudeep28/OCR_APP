@@ -62,6 +62,9 @@ class LoanDocument(models.Model):
     loan_sanction_date = models.DateField(null=True, blank=True)
     loan_balance = models.CharField(max_length=20, blank=True, null=True, default='')
     
+    # Bank Information
+    bank_name = models.CharField(max_length=100, blank=True, null=True, default='')
+    
     # Additional Information with language support
     witness_details = models.JSONField(default=list, blank=True)  
     emi_history = models.JSONField(default=list, blank=True)  

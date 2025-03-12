@@ -2,6 +2,8 @@
 {% load static %}
 {% load custom_filters %}
 
+{% block title %}Document Upload{% endblock %}
+
 {% block content %}
 <div class="container mt-5">
     <div class="row justify-content-center">
@@ -113,37 +115,38 @@ Do not include any additional text or explanations.</pre>
                         <h3>Processed Document Results</h3>
                     </div>
                     <div class="card-body">
-                        {% if document_type == 'loan' %}
+                        {% if processed_data %}
                         <div class="row mb-3">
                             <div class="col-12 text-end">
-                                <a href="{% url 'ocr_app:download-json' document_type=document_type document_id=loan_doc.id %}" class="btn btn-success me-2">
+                                <a href="{% url 'ocr_app:download-json' document_type=document_type document_id=extraction.id %}" class="btn btn-success me-2">
                                     <i class="fas fa-download"></i> Download JSON
                                 </a>
-                                <a href="{% url 'ocr_app:download-csv' document_type=document_type document_id=loan_doc.id %}" class="btn btn-primary">
+                                <a href="{% url 'ocr_app:download-csv' document_type=document_type document_id=extraction.id %}" class="btn btn-primary">
                                     <i class="fas fa-file-csv"></i> Download CSV
                                 </a>
                             </div>
                         </div>
+                        
                         <div class="row">
                             <div class="col-md-6">
                                 <h4>Original Text</h4>
                                 <dl class="row">
-                                    {% for field in loan_doc.get_processed_fields.translatable_fields %}
-                                        <dt class="col-sm-4">{{ field.name }}</dt>
-                                        <dd class="col-sm-8">{{ field.original|default:"-" }}</dd>
-                                    {% endfor %}
-                                    {% for field in loan_doc.get_processed_fields.simple_fields %}
-                                        <dt class="col-sm-4">{{ field.name }}</dt>
-                                        <dd class="col-sm-8">{{ field.value|default:"-" }}</dd>
+                                    {% for key, value in extraction_data.items %}
+                                        {% if value.original|default:'' or value.original == 0 %}
+                                            <dt class="col-sm-4">{{ key|title|replace_underscore }}</dt>
+                                            <dd class="col-sm-8">{{ value.original|default:"-" }}</dd>
+                                        {% endif %}
                                     {% endfor %}
                                 </dl>
                             </div>
                             <div class="col-md-6">
                                 <h4>English Translation</h4>
                                 <dl class="row">
-                                    {% for field in loan_doc.get_processed_fields.translatable_fields %}
-                                        <dt class="col-sm-4">{{ field.name }}</dt>
-                                        <dd class="col-sm-8">{{ field.translated|default:"-" }}</dd>
+                                    {% for key, value in extraction_data.items %}
+                                        {% if value.translated|default:'' or value.translated == 0 %}
+                                            <dt class="col-sm-4">{{ key|title|replace_underscore }}</dt>
+                                            <dd class="col-sm-8">{{ value.translated|default:"-" }}</dd>
+                                        {% endif %}
                                     {% endfor %}
                                 </dl>
                             </div>
@@ -152,7 +155,7 @@ Do not include any additional text or explanations.</pre>
                                 <dl class="row">
                                     <dt class="col-sm-3">Detected Languages</dt>
                                     <dd class="col-sm-9">
-                                        {% for field, lang in loan_doc.get_language_fields.items %}
+                                        {% for field, lang in languages_detected %}
                                             {% if lang != 'en' and lang != 'none' and lang != '' and lang %}
                                                 <div>{{ field }} was in : {{ lang }}</div>
                                             {% endif %}
@@ -161,126 +164,6 @@ Do not include any additional text or explanations.</pre>
                                         {% endfor %}
                                     </dd>
                                 </dl>
-                            </div>
-                        </div>
-                        {% elif document_type == 'property' %}
-                        <div class="row mb-3">
-                            <div class="col-12 text-end">
-                                <a href="{% url 'ocr_app:download-json' document_type=document_type document_id=property_doc.id %}" class="btn btn-success me-2">
-                                    <i class="fas fa-download"></i> Download JSON
-                                </a>
-                                <a href="{% url 'ocr_app:download-csv' document_type=document_type document_id=property_doc.id %}" class="btn btn-primary">
-                                    <i class="fas fa-file-csv"></i> Download CSV
-                                </a>
-                            </div>
-                        </div>
-                        <div class="row">
-                            {% for field in property_doc.get_processed_fields.translatable_fields %}
-                                <div class="col-md-6 mb-3">
-                                    <h5>{{ field.name }}</h5>
-                                    <div class="text-muted">Original ({{ field.language }}):</div>
-                                    <p>{{ field.original|default:"-" }}</p>
-                                    {% if field.translated %}
-                                    <div class="text-muted">English Translation:</div>
-                                    <p>{{ field.translated }}</p>
-                                    {% endif %}
-                                </div>
-                            {% endfor %}
-                            
-                            <!-- Display simple fields -->
-                            {% for field in property_doc.get_processed_fields.simple_fields %}
-                                <div class="col-md-6 mb-3">
-                                    <h5>{{ field.name }}</h5>
-                                    <p>{{ field.value|default:"-" }}</p>
-                                </div>
-                            {% endfor %}
-                        </div>
-                        {% elif document_type == 'table' %}
-                        <div class="row mb-3">
-                            <div class="col-12 text-end">
-                                <a href="{% url 'ocr_app:download-json' document_type=document_type document_id=table_doc.id %}" class="btn btn-success me-2">
-                                    <i class="fas fa-download"></i> Download JSON
-                                </a>
-                                <a href="{% url 'ocr_app:download-csv' document_type=document_type document_id=table_doc.id %}" class="btn btn-primary">
-                                    <i class="fas fa-file-csv"></i> Download CSV
-                                </a>
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-12">
-                                <h4>Extracted Table Data</h4>
-                                <div class="table-responsive">
-                                    <table class="table table-bordered table-hover">
-                                        <thead class="table-dark">
-                                            <tr>
-                                                {% for column in table_columns %}
-                                                <th>{{ column }}</th>
-                                                {% endfor %}
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {% for row in table_rows %}
-                                            <tr>
-                                                {% for column in table_columns %}
-                                                <td>{{ row|get_item:column }}</td>
-                                                {% endfor %}
-                                            </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                        {% elif document_type == 'custom' %}
-                        <div class="row mb-3">
-                            <div class="col-12 text-end">
-                                <a href="{% url 'ocr_app:download-json' document_type='custom' document_id=custom_extraction.id %}" class="btn btn-success me-2">
-                                    <i class="fas fa-download"></i> Download JSON
-                                </a>
-                                <a href="{% url 'ocr_app:download-csv' document_type='custom' document_id=custom_extraction.id %}" class="btn btn-primary">
-                                    <i class="fas fa-file-csv"></i> Download CSV
-                                </a>
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-12">
-                                <h4>Extracted Data</h4>
-                                <div class="accordion" id="customDataAccordion">
-                                    {% for key, value in custom_data.items %}
-                                    <div class="accordion-item">
-                                        <h2 class="accordion-header" id="heading{{ forloop.counter }}">
-                                            <button class="accordion-button collapsed" 
-                                                    type="button" data-bs-toggle="collapse" 
-                                                    data-bs-target="#collapse{{ forloop.counter }}" 
-                                                    aria-expanded="false" 
-                                                    aria-controls="collapse{{ forloop.counter }}">
-                                                {{ key|title }}
-                                            </button>
-                                        </h2>
-                                        <div id="collapse{{ forloop.counter }}" 
-                                             class="accordion-collapse collapse" 
-                                             aria-labelledby="heading{{ forloop.counter }}" 
-                                             data-bs-parent="#customDataAccordion">
-                                            <div class="accordion-body">
-                                                {% if value.original %}
-                                                    <div class="mb-2">
-                                                        <strong>Original {% if value.language %}({{ value.language }}){% endif %}:</strong>
-                                                        <p>{{ value.original }}</p>
-                                                    </div>
-                                                    {% if value.translated and value.translated != value.original %}
-                                                    <div>
-                                                        <strong>Translated:</strong>
-                                                        <p>{{ value.translated }}</p>
-                                                    </div>
-                                                    {% endif %}
-                                                {% else %}
-                                                    <p>{{ value }}</p>
-                                                {% endif %}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    {% endfor %}
-                                </div>
                             </div>
                         </div>
                         {% endif %}

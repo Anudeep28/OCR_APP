@@ -31,6 +31,7 @@ def image_to_base64(image):
 def convert_pdf_to_images(pdf_path, target_dpi=300):
     """Convert PDF to images with quality optimizations"""
     try:
+        print("Converting pdf to images using the optimization way")
         pdf_document = fitz.open(pdf_path)
         temp_dir = tempfile.mkdtemp()
         images = []
@@ -91,6 +92,47 @@ def enhance_image_quality(image_path):
         print(f"Error enhancing image: {str(e)}")
         return cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
+def enhance_pil_image(image):
+    """Enhance a PIL image for better OCR results"""
+    try:
+        print("Starting image enhancement")
+        # Convert to numpy array for OpenCV processing
+        img_np = np.array(image)
+        
+        # Convert to grayscale if it's a color image
+        if len(img_np.shape) == 3 and img_np.shape[2] == 3:
+            gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img_np
+            
+        # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(gray)
+        
+        # Apply adaptive thresholding to separate text from background
+        # For tables, we need to be more conservative with thresholding to preserve grid lines
+        binary = cv2.adaptiveThreshold(
+            enhanced, 
+            255, 
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+            cv2.THRESH_BINARY, 
+            15,  # Smaller block size for finer details
+            5    # Lower C value to preserve more details
+        )
+        
+        # Apply a light denoising to remove noise while preserving table structure
+        denoised = cv2.fastNlMeansDenoising(binary, None, 10, 7, 21)
+        
+        # Convert back to PIL image
+        enhanced_image = Image.fromarray(denoised)
+        print("Image enhancement completed successfully")
+        return enhanced_image
+    
+    except Exception as e:
+        print(f"Error in enhance_pil_image: {str(e)}")
+        # Return original image if enhancement fails
+        return image
+
 def detect_and_translate(text, model):
     """Detect language and translate text to English using Gemini"""
     try:
@@ -148,6 +190,7 @@ def extract_property_data_from_image(image, model, custom_prompt=None):
             {
                 "property_owner": "",
                 "property_area": "",
+                "property_size": "",
                 "property_location": "",
                 "property_coordinates": "",
                 "property_value": "",
@@ -284,9 +327,10 @@ def extract_property_data_from_image(image, model, custom_prompt=None):
                     extracted_data = {
                         "property_owner": "",
                         "property_area": "",
-                        "property_location": "",
-                        "property_value": "",
                         "property_size": "",
+                        "property_location": "",
+                        "property_coordinates": "",
+                        "property_value": "",
                         "loan_limit": "",
                         "risk_summary": "",
                         "bank_name": "",
@@ -315,7 +359,16 @@ def extract_property_data_from_image(image, model, custom_prompt=None):
             # For default prompts, ensure all required fields are present
             for field in extracted_data.keys():
                 value = extracted_data.get(field, '')
-                if isinstance(value, str):
+                if field in ["witness_details", "emi_history"]:
+                    # Handle arrays
+                    translated_array = []
+                    for item in value:
+                        if isinstance(item, str) and item.strip():  # Only translate non-empty strings
+                            translated_array.append(detect_and_translate(item, model))
+                        else:
+                            translated_array.append(item)
+                    translated_data[field] = translated_array
+                elif isinstance(value, str):
                     translated_data[field] = detect_and_translate(value, model)
                 else:
                     translated_data[field] = {
@@ -523,7 +576,19 @@ def extract_loan_data_from_image(image, model, custom_prompt=None):
         if custom_prompt:
             for field in extracted_data.keys():
                 value = extracted_data.get(field, '')
-                if field in ["witness_details", "emi_history"] and isinstance(value, list):
+                if isinstance(value, str):
+                    translated_data[field] = detect_and_translate(value, model)
+                else:
+                    translated_data[field] = {
+                        'original': value if value is not None else '',
+                        'language': 'none',
+                        'translated': value if value is not None else ''
+                    }
+        else:
+            # For default prompts, ensure all required fields are present
+            for field in extracted_data.keys():
+                value = extracted_data.get(field, '')
+                if field in ["witness_details", "emi_history"]:
                     # Handle arrays
                     translated_array = []
                     for item in value:
@@ -540,39 +605,6 @@ def extract_loan_data_from_image(image, model, custom_prompt=None):
                         'language': 'none',
                         'translated': value if value is not None else ''
                     }
-        else:
-            # For default prompts, ensure all required fields are present
-            required_fields = [
-                "borrower_name", "date_of_birth", "sex", "father_name", "spouse_name",
-                "aadhar_number", "pan_number", "passport_number", "driving_license",
-                "loan_amount", "loan_sanction_date", "loan_balance", "witness_details",
-                "emi_history", "credibility_summary", "bank_name"
-            ]
-            
-            for field in required_fields:
-                if field not in extracted_data:
-                    print(f"Adding missing field: {field}")
-                    extracted_data[field] = "" if field not in ["witness_details", "emi_history"] else []
-                    translated_data[field] = {"original": "", "language": "", "translated": ""}
-                else:
-                    value = extracted_data.get(field, '')
-                    if field in ["witness_details", "emi_history"]:
-                        # Handle arrays
-                        translated_array = []
-                        for item in value:
-                            if isinstance(item, str) and item.strip():  # Only translate non-empty strings
-                                translated_array.append(detect_and_translate(item, model))
-                            else:
-                                translated_array.append(item)
-                        translated_data[field] = translated_array
-                    elif isinstance(value, str):
-                        translated_data[field] = detect_and_translate(value, model)
-                    else:
-                        translated_data[field] = {
-                            'original': value if value is not None else '',
-                            'language': 'none',
-                            'translated': value if value is not None else ''
-                        }
 
         print("\n=== Translation Complete ===")
         return translated_data
@@ -593,7 +625,8 @@ def extract_table_data_from_image(image, model, custom_prompt=None):
             print("Image is already a base64 string")
             image_data = image
         else:
-            print("Converting image to base64")
+            # For tables, use the original image without enhancement
+            print("Using original image for table recognition")
             image_data = image_to_base64(image)
 
         # Use custom prompt if provided, otherwise use default

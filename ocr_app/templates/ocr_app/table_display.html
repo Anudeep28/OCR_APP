@@ -1,0 +1,86 @@
+{% extends "ocr_app/base.html" %}
+{% load static %}
+{% load custom_filters %}
+
+{% block title %}Table Data Display{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="text-center">Table Data Results</h2>
+                </div>
+                <div class="card-body">
+                    {% if messages %}
+                    <div class="messages">
+                        {% for message in messages %}
+                        <div class="alert {% if message.tags %}alert-{{ message.tags }}{% endif %}">
+                            {{ message }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <!-- Debug information -->
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <div class="alert alert-info">
+                                <h5>Data Structure Information:</h5>
+                                <p>extraction_data keys: {{ extraction_data.keys|join:", " }}</p>
+                                {% if extraction_data.columns %}
+                                    <p>Number of columns: {{ extraction_data.columns|length }}</p>
+                                    <p>Columns: {{ extraction_data.columns|join:", " }}</p>
+                                {% endif %}
+                                {% if extraction_data.rows %}
+                                    <p>Number of rows: {{ extraction_data.rows|length }}</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if extraction_data.columns and extraction_data.rows %}
+                    <div class="row mb-3">
+                        <div class="col-12 text-end">
+                            <a href="{% url 'ocr_app:download-json' document_type=document_type document_id=extraction.id %}" class="btn btn-success me-2">
+                                <i class="fas fa-download"></i> Download JSON
+                            </a>
+                            <a href="{% url 'ocr_app:download-csv' document_type=document_type document_id=extraction.id %}" class="btn btn-primary">
+                                <i class="fas fa-file-csv"></i> Download CSV
+                            </a>
+                        </div>
+                    </div>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-striped">
+                            <thead class="table-primary">
+                                <tr>
+                                    {% for column in extraction_data.columns %}
+                                    <th>{{ column }}</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in extraction_data.rows %}
+                                <tr>
+                                    {% for column in extraction_data.columns %}
+                                    <td>{{ row|get_item:column|default:"-" }}</td>
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-warning">
+                        <p>No table data found in the extracted content.</p>
+                        <p>Available data: {{ extraction_data }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

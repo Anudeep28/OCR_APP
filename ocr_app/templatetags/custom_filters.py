@@ -19,21 +19,19 @@ def pprint(value):
     """Pretty print a value"""
     if isinstance(value, dict):
         return json.dumps(value, indent=2)
-    return value
+    return pprint.pformat(value)
 
 @register.filter
 def get_item(dictionary, key):
-    """Get an item from a dictionary using the key"""
-    if dictionary is None:
-        return ""
-    return dictionary.get(key, "")
+    """Get an item from a dictionary using a key"""
+    return dictionary.get(key, '')
 
 @register.filter
 def replace_underscore(value):
-    """Replace underscores with spaces and capitalize each word"""
-    if value is None:
-        return ""
-    return value.replace('_', ' ').title()
+    """Replace underscores with spaces"""
+    if isinstance(value, str):
+        return value.replace('_', ' ')
+    return value
 
 @register.filter
 def get_attribute(obj, attr):

@@ -151,5 +151,5 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'ocr_app.CustomUser'
 
 LOGIN_URL = '/accounts/login/'
-LOGIN_REDIRECT_URL = '/document-upload/'
+LOGIN_REDIRECT_URL = '/document-process/'
 LOGOUT_REDIRECT_URL = '/'

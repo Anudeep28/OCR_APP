@@ -9,9 +9,24 @@
             
             {% if user.is_authenticated %}
                 {% if user.is_app_user %}
-                    <a href="{% url 'ocr_app:document-upload' %}" class="btn btn-primary btn-lg">
-                        Upload Document
-                    </a>
+                    <div class="row mt-4 justify-content-center">
+                        <div class="col-md-6">
+                            <div class="card mb-4">
+                                <div class="card-body">
+                                    <h5 class="card-title">Document OCR</h5>
+                                    <p class="card-text">Process documents with our OCR system</p>
+                                    <a href="{% url 'ocr_app:document-process' %}" class="btn btn-primary">
+                                        Upload Document
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <h3>About Our OCR System</h3>
+                        <p>Our application uses advanced OCR technology to extract text and data from various document types. Upload your documents to get started.</p>
+                    </div>
                 {% else %}
                     <div class="alert alert-info">
                         Contact admin to get access to document processing features.
